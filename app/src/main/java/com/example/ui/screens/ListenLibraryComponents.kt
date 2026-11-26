@@ -1,5 +1,12 @@
 package com.example.ui.screens
 
+import android.graphics.Bitmap
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -27,13 +34,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -42,6 +48,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,11 +61,17 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -62,7 +79,10 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.data.model.LocalAudioTrack
 import com.example.data.preferences.UserAudioPlaylist
+import com.example.data.util.LocalMediaScanner
 import com.example.ui.theme.aura
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -829,124 +849,167 @@ private fun PlaylistSummaryRow(
 }
 
 @Composable
-internal fun FloatingMiniPlayerCapsule(
+internal fun FloatingMiniPlayerCircleButton(
     track: LocalAudioTrack,
     isPlaying: Boolean,
     isArabic: Boolean,
     onOpenFullPlayer: () -> Unit,
-    onPlayPauseClick: () -> Unit,
-    onNextClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val aura = MaterialTheme.aura
-    Surface(
-        shape = CircleShape,
-        color = aura.surfaceElevated,
-        border = BorderStroke(0.9.dp, aura.borderSubtle),
-        shadowElevation = 14.dp,
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 6.dp)
-            .clip(CircleShape)
-            .clickable(onClick = onOpenFullPlayer)
-            .testTag("listen_mini_player")
+    val context = LocalContext.current
+    var extractedBitmap by remember(track.id, track.audioUri, track.albumArtUri) {
+        mutableStateOf<Bitmap?>(null)
+    }
+
+    LaunchedEffect(track.id, track.audioUri, track.albumArtUri) {
+        extractedBitmap = if (track.isFromDevice && (track.audioUri != null || track.albumArtUri != null)) {
+            withContext(Dispatchers.IO) {
+                LocalMediaScanner.extractAudioCoverArt(
+                    context = context,
+                    audioUriStr = track.audioUri,
+                    albumArtUriStr = track.albumArtUri
+                )
+            }
+        } else {
+            null
+        }
+    }
+
+    val infiniteTransition = rememberInfiniteTransition(label = "mini_player_disc")
+    val discRotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 12000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "disc_rotation"
+    )
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.07f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 900),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "disc_pulse"
+    )
+
+    val actionLabel = if (isArabic) {
+        "فتح مشغل الموسيقى الرئيسي: ${track.title}"
+    } else {
+        "Open full music player: ${track.title}"
+    }
+
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.Center
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    Brush.horizontalGradient(
-                        colors = listOf(
-                            aura.surfaceElevated,
-                            aura.surfaceCard,
-                            aura.surfaceElevated
+        if (isPlaying) {
+            Box(
+                modifier = Modifier
+                    .size(70.dp)
+                    .graphicsLayer {
+                        scaleX = pulseScale
+                        scaleY = pulseScale
+                    }
+                    .clip(CircleShape)
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                aura.accentCyan.copy(alpha = 0.34f),
+                                Color.Transparent
+                            )
                         )
                     )
+            )
+        }
+
+        Surface(
+            shape = CircleShape,
+            color = aura.surfaceElevated,
+            border = BorderStroke(
+                width = if (isPlaying) 2.dp else 1.2.dp,
+                color = if (isPlaying) aura.accentCyan else aura.borderSubtle
+            ),
+            shadowElevation = 14.dp,
+            modifier = Modifier
+                .size(62.dp)
+                .clip(CircleShape)
+                .semantics { contentDescription = actionLabel }
+                .clickable(
+                    role = Role.Button,
+                    onClickLabel = actionLabel,
+                    onClick = onOpenFullPlayer
                 )
+                .testTag("listen_mini_player")
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 62.dp)
-                    .padding(start = 10.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
             ) {
                 Box(
                     modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(aura.surfaceSubtle)
+                        .fillMaxSize()
+                        .padding(3.dp)
+                        .clip(CircleShape)
+                        .graphicsLayer {
+                            rotationZ = if (isPlaying) discRotation else 0f
+                        }
                 ) {
-                    if (track.albumArtUri != null) {
-                        AsyncImage(
-                            model = track.albumArtUri,
-                            contentDescription = track.title,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        Image(
-                            painter = painterResource(id = track.albumCoverRes),
-                            contentDescription = track.title,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
+                    when {
+                        extractedBitmap != null && !extractedBitmap!!.isRecycled -> {
+                            Image(
+                                bitmap = extractedBitmap!!.asImageBitmap(),
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                        track.albumArtUri != null -> {
+                            AsyncImage(
+                                model = track.albumArtUri,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                        !track.isFromDevice -> {
+                            Image(
+                                painter = painterResource(id = track.albumCoverRes),
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                        else -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(aura.surfaceCard)
+                            )
+                        }
                     }
                 }
 
-                Spacer(modifier = Modifier.width(12.dp))
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = track.title,
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            color = aura.textPrimary,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp
-                        ),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(1.dp))
-                    Text(
-                        text = track.artist,
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            color = aura.textSecondary,
-                            fontSize = 12.sp
-                        ),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-
-                IconButton(
-                    onClick = onPlayPauseClick,
+                Box(
                     modifier = Modifier
-                        .size(48.dp)
-                        .testTag("listen_mini_play_pause")
+                        .fillMaxSize()
+                        .background(
+                            Brush.radialGradient(
+                                colors = listOf(
+                                    Color.Black.copy(alpha = 0.56f),
+                                    Color.Black.copy(alpha = 0.24f)
+                                )
+                            )
+                        ),
+                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = if (isPlaying) {
-                            if (isArabic) "إيقاف مؤقت" else "Pause"
-                        } else {
-                            if (isArabic) "تشغيل" else "Play"
-                        },
-                        tint = if (isPlaying) aura.accentCyan else aura.textPrimary,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
-
-                IconButton(
-                    onClick = onNextClick,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .testTag("listen_mini_next")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.FastForward,
-                        contentDescription = if (isArabic) "المقطع التالي" else "Next Track",
-                        tint = aura.textPrimary,
+                        imageVector = if (isPlaying) Icons.Default.GraphicEq else Icons.Default.MusicNote,
+                        contentDescription = null,
+                        tint = if (isPlaying) aura.accentCyan else Color.White,
                         modifier = Modifier.size(26.dp)
                     )
                 }
@@ -954,3 +1017,4 @@ internal fun FloatingMiniPlayerCapsule(
         }
     }
 }
+

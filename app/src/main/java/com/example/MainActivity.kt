@@ -352,6 +352,7 @@ fun VideoPulseApp(
     }
 
     var isWatchBottomBarHidden by remember { mutableStateOf(false) }
+    var isListenFullPlayerOpen by remember { mutableStateOf(false) }
     var bottomBarHeightPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
     val fallbackBottomBarDp = 80.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -365,9 +366,12 @@ fun VideoPulseApp(
         if (currentDestination != NavDestination.WATCH) {
             isWatchBottomBarHidden = false
         }
+        if (currentDestination != NavDestination.LISTEN) {
+            isListenFullPlayerOpen = false
+        }
     }
 
-    val shouldHideBottomBar = currentDestination == NavDestination.LISTEN ||
+    val shouldHideBottomBar = (isListenFullPlayerOpen && currentDestination == NavDestination.LISTEN) ||
         (isWatchBottomBarHidden && currentDestination == NavDestination.WATCH)
     val bottomBarHideProgress by animateFloatAsState(
         targetValue = if (shouldHideBottomBar) 1f else 0f,
@@ -481,6 +485,9 @@ fun VideoPulseApp(
                                             tabBackStack.clear()
                                             tabBackStack.add(NavDestination.HOME)
                                         }
+                                    },
+                                    onFullPlayerVisibilityChange = { isOpen ->
+                                        isListenFullPlayerOpen = isOpen
                                     }
                                 )
                             }
@@ -552,7 +559,7 @@ fun VideoPulseApp(
 
             val bottomFadeHeight = (bottomBarHeightDp - 18.dp).coerceAtLeast(62.dp)
             val bottomFadeGlassAlpha by animateFloatAsState(
-                targetValue = if (currentDestination == NavDestination.WATCH) {
+                targetValue = if (currentDestination == NavDestination.WATCH || currentDestination == NavDestination.LISTEN) {
                     (1f - bottomBarHideProgress).coerceIn(0f, 1f)
                 } else {
                     1f
@@ -560,7 +567,7 @@ fun VideoPulseApp(
                 animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
                 label = "bottom_fade_glass_alpha"
             )
-            if (currentDestination != NavDestination.LISTEN && bottomFadeGlassAlpha > 0.01f) {
+            if (bottomFadeGlassAlpha > 0.01f) {
                 BottomEdgeFadeInGlass(
                     height = bottomFadeHeight,
                     baseBackgroundColor = if (currentDestination == NavDestination.SHORT) Color.Black else aura.background,
@@ -574,7 +581,7 @@ fun VideoPulseApp(
                 )
             }
 
-            // Overlaid bottom navigation bar; smoothly slides away on Listen and during Watch scrolling
+            // Overlaid bottom navigation bar; smoothly slides away during Listen full player and Watch scrolling
             if (bottomBarHideProgress < 0.99f) {
                 VideoPulseBottomBar(
                     currentDestination = currentDestination,

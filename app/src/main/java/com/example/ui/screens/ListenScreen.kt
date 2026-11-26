@@ -13,6 +13,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
@@ -156,6 +158,7 @@ fun ListenScreen(
     var userPlaylists by remember { mutableStateOf(prefsRepo.getUserAudioPlaylists()) }
 
     var isPlaying by remember { mutableStateOf(false) }
+    var hasSelectedTrackForSession by remember { mutableStateOf(false) }
     var currentPositionMs by remember { mutableFloatStateOf(0f) }
     var currentDurationMs by remember { mutableFloatStateOf(currentTrack.durationSeconds * 1000f) }
     var isDraggingSlider by remember { mutableStateOf(false) }
@@ -262,6 +265,7 @@ fun ListenScreen(
 
     fun playTrack(index: Int) {
         if (index !in playlist.indices) return
+        hasSelectedTrackForSession = true
         currentTrackIndex = index
         val track = playlist[index]
         currentPositionMs = 0f
@@ -300,6 +304,7 @@ fun ListenScreen(
                 exoPlayer.pause()
                 isPlaying = false
             } else {
+                hasSelectedTrackForSession = true
                 if (exoPlayer.playbackState == Player.STATE_IDLE) {
                     playTrack(currentTrackIndex)
                 } else {
@@ -308,10 +313,28 @@ fun ListenScreen(
                 }
             }
         } else {
-            if (!isPlaying && totalPlaysCount == 0) {
-                recordPlayTelemetry(currentTrack)
+            if (!isPlaying) {
+                hasSelectedTrackForSession = true
+                if (totalPlaysCount == 0) {
+                    recordPlayTelemetry(currentTrack)
+                }
             }
             isPlaying = !isPlaying
+        }
+    }
+
+    fun handleTrackTap(
+        track: LocalAudioTrack,
+        onBeforeOpenFullPlayer: () -> Unit = {}
+    ) {
+        if (hasSelectedTrackForSession && currentTrack.id == track.id) {
+            if (!isPlaying) {
+                toggleCurrentPlayPause()
+            }
+            onBeforeOpenFullPlayer()
+            showFullNowPlaying = true
+        } else {
+            playTrackObject(track)
         }
     }
 
@@ -508,8 +531,7 @@ fun ListenScreen(
                     topTrackPlays = topTrackPlays,
                     libraryTrackCount = playlist.size,
                     onTopSongClick = {
-                        playTrackObject(topTrack)
-                        showFullNowPlaying = true
+                        handleTrackTap(topTrack)
                     },
                     onStatsCardClick = {
                         showProfileStudioSheet = true
@@ -568,19 +590,17 @@ fun ListenScreen(
                 isArabic = isArabic,
                 tracks = localDisplayTracks,
                 mostListenedTrack = mostListenedLocalTrack,
-                currentTrackId = currentTrack.id,
+                currentTrackId = if (hasSelectedTrackForSession) currentTrack.id else "",
                 userPlaylists = userPlaylists,
                 favoriteIds = favoriteIds,
                 onBack = { showLocalMusicScreen = false },
                 onPlayTrack = { track ->
-                    playTrackObject(track)
-                    showFullNowPlaying = true
+                    handleTrackTap(track)
                 },
                 onShufflePlay = { candidateTracks ->
                     if (candidateTracks.isNotEmpty()) {
                         val picked = candidateTracks.random()
                         playTrackObject(picked)
-                        showFullNowPlaying = true
                     }
                 },
                 onOpenProfileStudio = { showProfileStudioSheet = true },
@@ -601,29 +621,35 @@ fun ListenScreen(
             )
         }
 
-        // Floating Capsule Mini-Player anchored cleanly at the bottom edge (dock hidden on Listen)
-        FloatingMiniPlayerCapsule(
-            track = currentTrack,
-            isPlaying = isPlaying,
-            isArabic = isArabic,
-            onOpenFullPlayer = {
-                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                showFullNowPlaying = true
-            },
-            onPlayPauseClick = {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                toggleCurrentPlayPause()
-            },
-            onNextClick = {
-                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                val nextIndex = (currentTrackIndex + 1) % playlist.size
-                playTrack(nextIndex)
-            },
+        // Circular Mini-Player trigger anchored above the app's bottom navigation bar
+        AnimatedVisibility(
+            visible = !showFullNowPlaying,
+            enter = fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.85f),
+            exit = fadeOut(animationSpec = tween(160)) + scaleOut(targetScale = 0.85f),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .widthIn(max = 640.dp)
-                .padding(bottom = bottomDockPadding + 6.dp)
-        )
+                .fillMaxWidth()
+        ) {
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.BottomEnd
+            ) {
+                FloatingMiniPlayerCircleButton(
+                    track = currentTrack,
+                    isPlaying = isPlaying,
+                    isArabic = isArabic,
+                    onOpenFullPlayer = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        showFullNowPlaying = true
+                    },
+                    modifier = Modifier.padding(
+                        end = 20.dp,
+                        bottom = bottomDockPadding + 14.dp
+                    )
+                )
+            }
+        }
 
         // Full-Screen Immersive Now Playing Overlay
         AnimatedVisibility(
@@ -753,14 +779,14 @@ fun ListenScreen(
                 type = sheetType,
                 isArabic = isArabic,
                 tracks = collectionTracks,
-                currentTrackId = currentTrack.id,
+                currentTrackId = if (hasSelectedTrackForSession) currentTrack.id else "",
                 isPlaying = isPlaying,
                 downloadedIds = downloadedIds,
                 onDismiss = { activeCollectionSheet = null },
                 onPlayTrack = { track ->
-                    playTrackObject(track)
-                    activeCollectionSheet = null
-                    showFullNowPlaying = true
+                    handleTrackTap(track) {
+                        activeCollectionSheet = null
+                    }
                 },
                 onToggleDownload = { track ->
                     downloadedIds = prefsRepo.toggleListenDownloaded(track.id)
@@ -838,9 +864,9 @@ fun ListenScreen(
                 isArabic = isArabic,
                 onDismiss = { activeUserPlaylist = null },
                 onPlayTrack = { track ->
-                    playTrackObject(track)
-                    activeUserPlaylist = null
-                    showFullNowPlaying = true
+                    handleTrackTap(track) {
+                        activeUserPlaylist = null
+                    }
                 },
                 onDeletePlaylist = {
                     val updated = userPlaylists.filterNot { it.id == viewingPlaylist.id }

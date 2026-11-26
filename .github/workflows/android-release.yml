@@ -41,27 +41,25 @@ jobs:
           STORE_PASS: ${{ secrets.STORE_PASSWORD }}
           KEY_PASS: ${{ secrets.KEY_PASSWORD }}
         run: |
-          REPO_KEYSTORE="${{ github.workspace }}/my-upload-key.jks"
-          TEMP_KEYSTORE="${{ runner.temp }}/release-upload-key.jks"
+          KEYSTORE_FILE="${{ github.workspace }}/my-upload-key.jks"
+          BASE64_OUT_FILE="${{ runner.temp }}/my-upload-key.jks.base64.txt"
           CLEAN_KEYSTORE_BASE64="$(printf '%s' "$KEYSTORE_BASE64" | tr -d '[:space:]')"
           EFFECTIVE_STORE_PASS="${STORE_PASS:-android}"
           EFFECTIVE_KEY_PASS="${KEY_PASS:-$EFFECTIVE_STORE_PASS}"
 
           if [ -n "$CLEAN_KEYSTORE_BASE64" ]; then
-            echo "Decoding persistent release keystore from GitHub Secret..."
-            printf '%s' "$CLEAN_KEYSTORE_BASE64" | base64 --decode > "$TEMP_KEYSTORE"
-            if [ ! -s "$TEMP_KEYSTORE" ]; then
+            echo "Decoding persistent release keystore from GitHub Secret to my-upload-key.jks..."
+            printf '%s' "$CLEAN_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_FILE"
+            if [ ! -s "$KEYSTORE_FILE" ]; then
               echo "::error::Decoded KEYSTORE_BASE64 is empty. Ensure KEYSTORE_BASE64 contains valid base64 of your .jks keystore."
               exit 1
             fi
-            KEYSTORE_FILE="$TEMP_KEYSTORE"
-          elif [ -f "$REPO_KEYSTORE" ]; then
-            echo "Using repository persistent release keystore (my-upload-key.jks) to preserve upgrade compatibility."
-            KEYSTORE_FILE="$REPO_KEYSTORE"
+            echo "KEYSTORE_GENERATED=false" >> "$GITHUB_ENV"
           else
-            echo "::warning::KEYSTORE_BASE64 secret is not set; generating my-upload-key.jks with alias 'upload'."
+            echo "::warning::KEYSTORE_BASE64 secret is empty; generating my-upload-key.jks with alias 'upload'."
+            rm -f "$KEYSTORE_FILE"
             keytool -genkeypair -v \
-              -keystore "$REPO_KEYSTORE" \
+              -keystore "$KEYSTORE_FILE" \
               -storetype JKS \
               -keyalg RSA \
               -keysize 2048 \
@@ -69,8 +67,10 @@ jobs:
               -alias upload \
               -storepass "$EFFECTIVE_STORE_PASS" \
               -keypass "$EFFECTIVE_KEY_PASS" \
-              -dname "CN=Aura Pulse, OU=Android, O=Aura Pulse, L=Unknown, ST=Unknown, C=US"
-            KEYSTORE_FILE="$REPO_KEYSTORE"
+              -dname "CN=Charfeddine Ka, O=Aura, C=DZ"
+            base64 < "$KEYSTORE_FILE" | tr -d '\n' > "$BASE64_OUT_FILE"
+            echo "KEYSTORE_GENERATED=true" >> "$GITHUB_ENV"
+            echo "::notice::Generated my-upload-key.jks. Download the 'release-keystore-base64' artifact from this run and save its contents in the KEYSTORE_BASE64 secret for future in-place APK updates."
           fi
 
           if ! keytool -list -keystore "$KEYSTORE_FILE" -storepass "$EFFECTIVE_STORE_PASS" -alias upload >/dev/null 2>&1; then
@@ -188,9 +188,20 @@ jobs:
           KEY_PASSWORD: ${{ env.KEY_PASSWORD }}
         run: ./gradlew assembleRelease --stacktrace
 
-      - name: Clean Up Temporary Keystore
+      - name: Upload Generated Keystore Base64 (One-Time Setup)
+        if: env.KEYSTORE_GENERATED == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-keystore-base64
+          path: ${{ runner.temp }}/my-upload-key.jks.base64.txt
+          retention-days: 7
+
+      - name: Clean Up Temporary Keystore Files
         if: always()
-        run: rm -f "${{ runner.temp }}/release-upload-key.jks"
+        run: |
+          rm -f "${{ github.workspace }}/my-upload-key.jks" \
+                "${{ runner.temp }}/release-upload-key.jks" \
+                "${{ runner.temp }}/my-upload-key.jks.base64.txt"
 
       - name: Verify Signature & Rename APK
         run: |

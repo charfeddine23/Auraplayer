@@ -56,6 +56,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,6 +66,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -78,6 +80,11 @@ import com.example.ui.theme.PulseViolet
 import com.example.ui.theme.TextDark
 import com.example.ui.theme.aura
 import com.example.ui.viewmodel.StreakViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
 
 data class AvatarPreset(
     val id: Int,
@@ -133,6 +140,8 @@ fun EditProfileScreen(
     modifier: Modifier = Modifier
 ) {
     val aura = MaterialTheme.aura
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     BackHandler {
         onNavigateBack()
@@ -159,14 +168,47 @@ fun EditProfileScreen(
     ) { uri: Uri? ->
         if (uri != null) {
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            val uriStr = uri.toString()
-            selectedAvatarUri = uriStr
-            streakViewModel.clearEquippedCyberAvatar(isArabic = isArabic, silent = true)
-            streakViewModel.updateProfile(
-                name = nameInput,
-                avatarUri = uriStr,
-                presetId = selectedPresetId
-            )
+            scope.launch {
+                val persistedUri = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val sharedDir = File(context.filesDir, "shared").apply { mkdirs() }
+                        sharedDir.listFiles { f ->
+                            f.isFile && f.name.startsWith("profile_avatar_")
+                        }?.forEach { it.delete() }
+                        val destFile = File(sharedDir, "profile_avatar_${System.currentTimeMillis()}.jpg")
+                        val maxBytes = 10L * 1024L * 1024L
+                        var totalRead = 0L
+                        context.contentResolver.openInputStream(uri)?.use { input ->
+                            FileOutputStream(destFile).use { output ->
+                                val buf = ByteArray(8192)
+                                while (true) {
+                                    val read = input.read(buf)
+                                    if (read == -1) break
+                                    totalRead += read
+                                    if (totalRead > maxBytes) {
+                                        throw IllegalStateException("Image exceeds 10 MB limit")
+                                    }
+                                    output.write(buf, 0, read)
+                                }
+                            }
+                        } ?: throw IllegalStateException("Cannot open picked image")
+                        if (destFile.exists() && destFile.length() > 0L) {
+                            Uri.fromFile(destFile).toString()
+                        } else {
+                            null
+                        }
+                    }.getOrNull()
+                }
+                if (persistedUri != null) {
+                    selectedAvatarUri = persistedUri
+                    streakViewModel.clearEquippedCyberAvatar(isArabic = isArabic, silent = true)
+                    streakViewModel.updateProfile(
+                        name = nameInput.take(60),
+                        avatarUri = persistedUri,
+                        presetId = selectedPresetId
+                    )
+                }
+            }
         }
     }
 
@@ -571,9 +613,10 @@ fun EditProfileScreen(
                         OutlinedTextField(
                             value = nameInput,
                             onValueChange = { updatedName ->
-                                nameInput = updatedName
+                                val capped = updatedName.take(60)
+                                nameInput = capped
                                 streakViewModel.updateProfile(
-                                    name = updatedName,
+                                    name = capped,
                                     avatarUri = selectedAvatarUri,
                                     presetId = selectedPresetId
                                 )

@@ -22,6 +22,8 @@ import android.util.Size
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.example.data.model.LocalDeviceVideo
+import com.example.data.model.MAX_SHORT_VIDEO_DURATION_MS
+import com.example.data.model.isEligibleShortVideo
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
@@ -662,6 +664,14 @@ object LocalMediaScanner {
         )
     }
 
+    private fun computeIsPortrait(width: Int, height: Int, rotationDegrees: Int): Boolean {
+        if (width <= 0 || height <= 0) return false
+        val normalized = ((rotationDegrees % 360) + 360) % 360
+        val effectiveW = if (normalized == 90 || normalized == 270) height else width
+        val effectiveH = if (normalized == 90 || normalized == 270) width else height
+        return effectiveH > effectiveW
+    }
+
     fun scanDeviceVideos(context: Context): List<LocalDeviceVideo> {
         val videos = mutableListOf<LocalDeviceVideo>()
         val projectionList = mutableListOf(
@@ -676,6 +686,7 @@ object LocalMediaScanner {
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             projectionList.add(MediaStore.Video.Media.RELATIVE_PATH)
+            projectionList.add(MediaStore.Video.Media.ORIENTATION)
         }
         val projection = projectionList.toTypedArray()
         val sortOrder = "${MediaStore.Video.Media.DATE_ADDED} DESC"
@@ -700,6 +711,9 @@ object LocalMediaScanner {
                 val relPathCol = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     c.getColumnIndex(MediaStore.Video.Media.RELATIVE_PATH)
                 } else -1
+                val orientationCol = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    c.getColumnIndex(MediaStore.Video.Media.ORIENTATION)
+                } else -1
 
                 while (c.moveToNext()) {
                     val id = if (idCol >= 0 && !c.isNull(idCol)) c.getLong(idCol) else videos.size.toLong()
@@ -711,6 +725,7 @@ object LocalMediaScanner {
                     val dateAddedSecs = if (dateCol >= 0 && !c.isNull(dateCol)) c.getLong(dateCol) else 0L
                     val bucketName = if (bucketCol >= 0 && !c.isNull(bucketCol)) c.getString(bucketCol) else null
                     val relativePath = if (relPathCol >= 0 && !c.isNull(relPathCol)) c.getString(relPathCol) else null
+                    val orientationDeg = if (orientationCol >= 0 && !c.isNull(orientationCol)) c.getInt(orientationCol) else 0
 
                     val contentUri = try {
                         ContentUris.withAppendedId(
@@ -722,6 +737,7 @@ object LocalMediaScanner {
                     }
 
                     val dateAddedMs = if (dateAddedSecs > 0L) dateAddedSecs * 1000L else 0L
+                    val isPortrait = computeIsPortrait(width, height, orientationDeg)
 
                     videos.add(
                         LocalDeviceVideo(
@@ -737,7 +753,12 @@ object LocalMediaScanner {
                             bitmap = null,
                             isFromGallery = true,
                             folderName = bucketName?.ifBlank { "Internal Storage" } ?: "Internal Storage",
-                            relativePath = relativePath
+                            relativePath = relativePath,
+                            durationMs = durationMs,
+                            width = width,
+                            height = height,
+                            rotationDegrees = orientationDeg,
+                            isPortrait = isPortrait
                         )
                     )
                 }
@@ -746,6 +767,56 @@ object LocalMediaScanner {
             // Guard against any security or cursor errors
         }
         return videos
+    }
+
+    /**
+     * Scans device videos and strictly keeps ONLY vertically-filmed (portrait) videos
+     * whose duration is greater than 0 and does not exceed 30 minutes (1,800,000 ms).
+     */
+    fun scanShortVerticalVideos(context: Context): List<LocalDeviceVideo> {
+        val allVideos = scanDeviceVideos(context)
+        val result = ArrayList<LocalDeviceVideo>(allVideos.size)
+        for (video in allVideos) {
+            // Quick pre-filter: if MediaStore already guarantees duration > 30 min, skip immediately
+            if (video.durationMs > MAX_SHORT_VIDEO_DURATION_MS) continue
+
+            val needsRetrieverCheck = video.width <= 0 ||
+                video.height <= 0 ||
+                video.durationMs <= 0L ||
+                Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
+
+            val resolved = if (needsRetrieverCheck && !video.uriString.isNullOrBlank()) {
+                val retriever = MediaMetadataRetriever()
+                try {
+                    retriever.setDataSource(context, Uri.parse(video.uriString))
+                    val rDur = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: video.durationMs
+                    val rW = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: video.width
+                    val rH = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: video.height
+                    val rRot = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: video.rotationDegrees
+                    val portrait = computeIsPortrait(rW, rH, rRot)
+                    video.copy(
+                        durationMs = rDur,
+                        durationText = if (rDur > 0L) formatDuration(rDur) else video.durationText,
+                        width = rW,
+                        height = rH,
+                        rotationDegrees = rRot,
+                        resolutionText = if (rW > 0 && rH > 0) formatResolution(rW, rH) else video.resolutionText,
+                        isPortrait = portrait
+                    )
+                } catch (_: Throwable) {
+                    video
+                } finally {
+                    runCatching { retriever.release() }
+                }
+            } else {
+                video
+            }
+
+            if (resolved.isEligibleShortVideo()) {
+                result.add(resolved)
+            }
+        }
+        return result
     }
 
     fun parseUriToLocalVideo(context: Context, uri: Uri): LocalDeviceVideo {
@@ -809,12 +880,14 @@ object LocalMediaScanner {
         var durationMs = 0L
         var width = 0
         var height = 0
+        var rotationDegrees = 0
         val retriever = MediaMetadataRetriever()
         try {
             retriever.setDataSource(context, uri)
             durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
             width = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
             height = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+            rotationDegrees = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
         } catch (_: Exception) {
         } finally {
             try {
@@ -837,6 +910,8 @@ object LocalMediaScanner {
             else -> "Phone Files (ملفات الهاتف)"
         }
 
+        val isPortrait = computeIsPortrait(width, height, rotationDegrees)
+
         return LocalDeviceVideo(
             id = "picked_${System.currentTimeMillis()}_${(1000..9999).random()}",
             title = displayName ?: "Video.mp4",
@@ -850,7 +925,12 @@ object LocalMediaScanner {
             bitmap = null,
             isFromGallery = true,
             folderName = folderName,
-            relativePath = resolvedRelativePath
+            relativePath = resolvedRelativePath,
+            durationMs = durationMs,
+            width = width,
+            height = height,
+            rotationDegrees = rotationDegrees,
+            isPortrait = isPortrait
         )
     }
 
@@ -1214,16 +1294,39 @@ object LocalMediaScanner {
         }
     }
 
-    fun shareVideo(context: Context, video: LocalDeviceVideo): Boolean {
-        val rawUri = video.uriString ?: return false
+    fun resolveShareableUri(context: Context, rawUriString: String?): Uri? {
+        if (rawUriString.isNullOrBlank()) return null
         return try {
-            val rawParsed = Uri.parse(rawUri)
-            val shareUri = if (rawParsed.scheme == "file") {
-                val file = File(rawParsed.path ?: return false)
+            val rawParsed = Uri.parse(rawUriString)
+            if (rawParsed.scheme == "file") {
+                val rawPath = rawParsed.path ?: return null
+                val file = File(rawPath)
+                if (!file.exists()) return null
+                val canonical = file.canonicalPath
+                val dataRoot = runCatching { context.dataDir.canonicalPath }.getOrNull()
+                val allowedSharedFiles = runCatching { File(context.filesDir, "shared").canonicalPath }.getOrNull()
+                val allowedSharedCache = runCatching { File(context.cacheDir, "shared").canonicalPath }.getOrNull()
+                val isInsidePrivateData = dataRoot != null && (canonical == dataRoot || canonical.startsWith("$dataRoot/"))
+                val isInsideAllowedShared =
+                    (allowedSharedFiles != null && canonical.startsWith("$allowedSharedFiles/")) ||
+                        (allowedSharedCache != null && canonical.startsWith("$allowedSharedCache/"))
+                if (isInsidePrivateData && !isInsideAllowedShared) {
+                    return null
+                }
                 FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-            } else {
+            } else if (rawParsed.scheme == "content") {
                 rawParsed
+            } else {
+                null
             }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    fun shareVideo(context: Context, video: LocalDeviceVideo): Boolean {
+        val shareUri = resolveShareableUri(context, video.uriString) ?: return false
+        return try {
             val intent = Intent(Intent.ACTION_SEND).apply {
                 type = context.contentResolver.getType(shareUri) ?: "video/*"
                 putExtra(Intent.EXTRA_STREAM, shareUri)

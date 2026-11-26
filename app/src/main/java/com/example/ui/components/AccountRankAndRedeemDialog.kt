@@ -64,12 +64,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.data.model.VaultProgressionRegistry
+import com.example.data.util.SecurityUtils
 import com.example.ui.theme.aura
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
-
-private const val PREMIUM_REDEEM_CODE = "charfeddine23a"
 
 enum class MemberStreakRank(
     val title: String,
@@ -681,7 +680,7 @@ fun AccountRankAndRedeemDialog(
 
                                     Button(
                                         onClick = {
-                                            if (redeemCodeInput.trim() == PREMIUM_REDEEM_CODE) {
+                                            if (SecurityUtils.verifyPremiumRedeemCode(redeemCodeInput)) {
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                 redeemError = null
                                                 redeemCodeInput = ""

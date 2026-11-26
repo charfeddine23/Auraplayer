@@ -1,6 +1,8 @@
 package com.example.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
@@ -42,12 +44,10 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PictureInPicture
 import androidx.compose.material.icons.filled.RemoveRedEye
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -66,6 +66,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,14 +75,17 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.util.SecurityUtils
 import com.example.ui.theme.AppLanguage
 import com.example.ui.theme.AuraAtmosphericLayer
 import com.example.ui.theme.PulseCyan
@@ -89,6 +93,10 @@ import com.example.ui.theme.PulseViolet
 import com.example.ui.theme.ThemeMode
 import com.example.ui.theme.aura
 import com.example.ui.viewmodel.StreakViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.nio.charset.StandardCharsets
 
 @Composable
 fun SystemSettingsScreen(
@@ -102,6 +110,8 @@ fun SystemSettingsScreen(
     modifier: Modifier = Modifier
 ) {
     val aura = MaterialTheme.aura
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     val isPremiumActivated by streakViewModel.isPremiumActivated.collectAsState()
     val purchasedThemeIds by streakViewModel.purchasedThemeIds.collectAsState()
@@ -118,24 +128,97 @@ fun SystemSettingsScreen(
     // Moved Locked Settings (Activated via Aura Pulse Premium)
     var selectedCustomThemeIndex by remember { mutableStateOf(streakViewModel.getSelectedThemePresetIndex()) }
     var eyeProtectionEnabled by remember { mutableStateOf(streakViewModel.isEyeProtectionEnabled()) }
-    var mediaSharingEnabled by remember { mutableStateOf(streakViewModel.isWifiDirectSharingEnabled()) }
-    var smartNotificationsEnabled by remember { mutableStateOf(streakViewModel.isSmartNotificationsEnabled()) }
     var backgroundPlayEnabled by remember { mutableStateOf(streakViewModel.isBackgroundPlayEnabled()) }
     var pipModeEnabled by remember { mutableStateOf(streakViewModel.isPipModeEnabled()) }
 
     // Secret Vault PIN States
     var showVaultAuthDialog by remember { mutableStateOf(false) }
+    var showChangeVaultPinDialog by remember { mutableStateOf(false) }
     var isVaultUnlocked by remember { mutableStateOf(false) }
     var vaultPinInput by remember { mutableStateOf("") }
+    var newVaultPinInput by remember { mutableStateOf("") }
     var vaultPinError by remember { mutableStateOf<String?>(null) }
-    val vaultSavedPin = remember { streakViewModel.getVaultPin() ?: "1234" }
+    var hasCustomVaultPin by remember { mutableStateOf(streakViewModel.hasCustomVaultPin()) }
 
     // Aura Pulse Premium Activation Dialog
     var showPremiumDialog by remember { mutableStateOf(false) }
+    var premiumCodeInput by remember { mutableStateOf("") }
+    var premiumCodeError by remember { mutableStateOf<String?>(null) }
     var feedbackMessage by remember { mutableStateOf<String?>(null) }
+
+    val exportBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val ok = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val json = streakViewModel.exportPreferencesToJson()
+                        context.contentResolver.openOutputStream(uri)?.use { out ->
+                            out.write(json.toByteArray(StandardCharsets.UTF_8))
+                            out.flush()
+                        } ?: throw IllegalStateException("Unable to open destination file")
+                        true
+                    }.getOrDefault(false)
+                }
+                feedbackMessage = if (ok) {
+                    if (isArabic) "تم تصدير النسخة الاحتياطية بنجاح 💾" else "JSON backup exported successfully 💾"
+                } else {
+                    if (isArabic) "تعذر حفظ ملف النسخة الاحتياطية" else "Failed to export backup file"
+                }
+            }
+        }
+    }
+
+    val restoreBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val restored = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val maxBytes = 256 * 1024
+                        val bytes = context.contentResolver.openInputStream(uri)?.use { input ->
+                            val out = java.io.ByteArrayOutputStream()
+                            val buf = ByteArray(4096)
+                            var total = 0
+                            while (true) {
+                                val read = input.read(buf)
+                                if (read == -1) break
+                                total += read
+                                if (total > maxBytes) {
+                                    throw IllegalStateException("Backup file too large")
+                                }
+                                out.write(buf, 0, read)
+                            }
+                            out.toByteArray()
+                        } ?: throw IllegalStateException("Unable to read backup file")
+                        streakViewModel.importPreferencesFromJson(String(bytes, StandardCharsets.UTF_8))
+                    }.getOrDefault(false)
+                }
+                if (restored) {
+                    currentRgbAccent = streakViewModel.getRgbAccentColor()
+                    isOledBlackMode = streakViewModel.isOledBlackEnabled()
+                    isAutoResumeEnabled = streakViewModel.getAutoResume()
+                    defaultPlaybackSpeed = streakViewModel.getDefaultSpeed()
+                    selectedCustomThemeIndex = streakViewModel.getSelectedThemePresetIndex()
+                    eyeProtectionEnabled = streakViewModel.isEyeProtectionEnabled()
+                    backgroundPlayEnabled = streakViewModel.isBackgroundPlayEnabled()
+                    pipModeEnabled = streakViewModel.isPipModeEnabled()
+                    hasCustomVaultPin = streakViewModel.hasCustomVaultPin()
+                }
+                feedbackMessage = if (restored) {
+                    if (isArabic) "تمت استعادة البيانات بنجاح 📥" else "Preferences restored successfully 📥"
+                } else {
+                    if (isArabic) "ملف غير صالح أو فشلت الاستعادة" else "Invalid backup file or restore failed"
+                }
+            }
+        }
+    }
 
     BackHandler {
         when {
+            showChangeVaultPinDialog -> showChangeVaultPinDialog = false
             showVaultAuthDialog -> showVaultAuthDialog = false
             showPremiumDialog -> showPremiumDialog = false
             isMultiThemeEngineOpen -> isMultiThemeEngineOpen = false
@@ -606,8 +689,7 @@ fun SystemSettingsScreen(
                                         .clip(RoundedCornerShape(12.dp))
                                         .clickable {
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            streakViewModel.exportPreferencesToJson()
-                                            feedbackMessage = if (isArabic) "تم إنشاء نسخة JSON الاحتياطية بنجاح 💾" else "Exported local JSON backup 💾"
+                                            exportBackupLauncher.launch("aura_pulse_backup.json")
                                         },
                                     shape = RoundedCornerShape(12.dp),
                                     color = aura.accentCyanSoft,
@@ -630,13 +712,7 @@ fun SystemSettingsScreen(
                                         .clip(RoundedCornerShape(12.dp))
                                         .clickable {
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            val backupJson = streakViewModel.exportPreferencesToJson()
-                                            val restored = streakViewModel.importPreferencesFromJson(backupJson)
-                                            feedbackMessage = if (restored) {
-                                                if (isArabic) "تمت استعادة البيانات بنجاح 📥" else "Preferences restored successfully 📥"
-                                            } else {
-                                                if (isArabic) "فشلت استعادة البيانات" else "Restore failed"
-                                            }
+                                            restoreBackupLauncher.launch(arrayOf("application/json", "text/plain"))
                                         },
                                     shape = RoundedCornerShape(12.dp),
                                     color = aura.accentFlameSoft,
@@ -837,46 +913,74 @@ fun SystemSettingsScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
                                     Text(
-                                        text = if (isVaultUnlocked) {
-                                            if (isArabic) "الخزنة مفتوحة ومحمية محلياً ✓" else "Vault active & unlocked ✓"
-                                        } else {
-                                            if (isArabic) "محمية برمز PIN (الافتراضي: 1234)" else "Protected by PIN (Default: 1234)"
+                                        text = when {
+                                            isVaultUnlocked -> if (isArabic) "الخزنة مفتوحة ومحمية محلياً ✓" else "Vault active & unlocked ✓"
+                                            hasCustomVaultPin -> if (isArabic) "محمية برمز PIN مشفّر 🔒" else "Protected by encrypted PIN 🔒"
+                                            else -> if (isArabic) "محمية برمز PIN (الافتراضي: 1234)" else "Protected by PIN (Default: 1234)"
                                         },
+                                        modifier = Modifier.weight(1f),
                                         style = MaterialTheme.typography.bodySmall.copy(
                                             color = if (isVaultUnlocked) aura.accentEmerald else aura.textSecondary,
                                             fontSize = 11.5.sp
                                         )
                                     )
-                                    Surface(
-                                        shape = RoundedCornerShape(10.dp),
-                                        color = aura.accentCyanSoft,
-                                        border = BorderStroke(1.dp, aura.accentCyan.copy(alpha = 0.6f)),
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .clickable {
-                                                if (!isPremiumActivated) {
-                                                    showPremiumDialog = true
-                                                } else if (isVaultUnlocked) {
-                                                    isVaultUnlocked = false
-                                                } else {
-                                                    vaultPinInput = ""
-                                                    vaultPinError = null
-                                                    showVaultAuthDialog = true
-                                                }
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        if (isVaultUnlocked && isPremiumActivated) {
+                                            Surface(
+                                                shape = RoundedCornerShape(10.dp),
+                                                color = aura.surfaceCard,
+                                                border = BorderStroke(1.dp, aura.borderSubtle),
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(10.dp))
+                                                    .clickable {
+                                                        newVaultPinInput = ""
+                                                        vaultPinError = null
+                                                        showChangeVaultPinDialog = true
+                                                    }
+                                            ) {
+                                                Text(
+                                                    text = if (isArabic) "تغيير PIN" else "Set PIN",
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                                    style = MaterialTheme.typography.labelSmall.copy(
+                                                        color = aura.textPrimary,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                )
                                             }
-                                    ) {
-                                        Text(
-                                            text = if (isVaultUnlocked) {
-                                                if (isArabic) "قفل 🔒" else "Lock 🔒"
-                                            } else {
-                                                if (isArabic) "فتح الخزنة 🔓" else "Unlock 🔓"
-                                            },
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                            style = MaterialTheme.typography.labelSmall.copy(
-                                                color = aura.accentCyan,
-                                                fontWeight = FontWeight.Bold
+                                        }
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = aura.accentCyanSoft,
+                                            border = BorderStroke(1.dp, aura.accentCyan.copy(alpha = 0.6f)),
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .clickable {
+                                                    if (!isPremiumActivated) {
+                                                        premiumCodeInput = ""
+                                                        premiumCodeError = null
+                                                        showPremiumDialog = true
+                                                    } else if (isVaultUnlocked) {
+                                                        isVaultUnlocked = false
+                                                    } else {
+                                                        vaultPinInput = ""
+                                                        vaultPinError = null
+                                                        showVaultAuthDialog = true
+                                                    }
+                                                }
+                                        ) {
+                                            Text(
+                                                text = if (isVaultUnlocked) {
+                                                    if (isArabic) "قفل 🔒" else "Lock 🔒"
+                                                } else {
+                                                    if (isArabic) "فتح الخزنة 🔓" else "Unlock 🔓"
+                                                },
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                    color = aura.accentCyan,
+                                                    fontWeight = FontWeight.Bold
+                                                )
                                             )
-                                        )
+                                        }
                                     }
                                 }
                             }
@@ -926,7 +1030,7 @@ fun SystemSettingsScreen(
                                 }
                             }
 
-                            // 3E..3I Premium Toggle Switches
+                            // 3E..3G Premium Toggle Switches
                             PremiumLockedToggleRow(
                                 title = if (isArabic) "مرشح حماية العين الليلي" else "Visual Eye Protection Scrim",
                                 subtitle = if (isArabic) "تعتيم مريح للعين أثناء المشاهدة في الظلام" else "Softer ambient scrim for dark room viewing",
@@ -940,42 +1044,8 @@ fun SystemSettingsScreen(
                                         eyeProtectionEnabled = it
                                         streakViewModel.setEyeProtectionEnabled(it)
                                     } else {
-                                        showPremiumDialog = true
-                                    }
-                                }
-                            )
-
-                            PremiumLockedToggleRow(
-                                title = if (isArabic) "مشاركة الوسائط السريعة (Wi-Fi Direct)" else "Offline Media Sharing (Wi-Fi Direct)",
-                                subtitle = if (isArabic) "مشاركة ونقل الفيديوهات محلياً بدون إنترنت" else "High-speed local P2P video transfer",
-                                icon = Icons.Default.Share,
-                                checked = mediaSharingEnabled,
-                                isUnlocked = isPremiumActivated,
-                                isArabic = isArabic,
-                                onCheckedChange = {
-                                    if (isPremiumActivated) {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        mediaSharingEnabled = it
-                                        streakViewModel.setWifiDirectSharingEnabled(it)
-                                    } else {
-                                        showPremiumDialog = true
-                                    }
-                                }
-                            )
-
-                            PremiumLockedToggleRow(
-                                title = if (isArabic) "تنبيهات حماية السلسلة الذكية" else "Smart Streak Protection Reminders",
-                                subtitle = if (isArabic) "إشعارات ذكية قبل انتهاء اليوم لحماية الشعلة من الانطفاء" else "Daily offline reminders before streak flame expires",
-                                icon = Icons.Default.Notifications,
-                                checked = smartNotificationsEnabled,
-                                isUnlocked = isPremiumActivated,
-                                isArabic = isArabic,
-                                onCheckedChange = {
-                                    if (isPremiumActivated) {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        smartNotificationsEnabled = it
-                                        streakViewModel.setSmartNotificationsEnabled(it)
-                                    } else {
+                                        premiumCodeInput = ""
+                                        premiumCodeError = null
                                         showPremiumDialog = true
                                     }
                                 }
@@ -994,6 +1064,8 @@ fun SystemSettingsScreen(
                                         backgroundPlayEnabled = it
                                         streakViewModel.setBackgroundPlayEnabled(it)
                                     } else {
+                                        premiumCodeInput = ""
+                                        premiumCodeError = null
                                         showPremiumDialog = true
                                     }
                                 }
@@ -1012,6 +1084,8 @@ fun SystemSettingsScreen(
                                         pipModeEnabled = it
                                         streakViewModel.setPipModeEnabled(it)
                                     } else {
+                                        premiumCodeInput = ""
+                                        premiumCodeError = null
                                         showPremiumDialog = true
                                     }
                                 }
@@ -1045,41 +1119,85 @@ fun SystemSettingsScreen(
                     )
                 },
                 text = {
-                    Text(
-                        text = if (isPremiumActivated) {
-                            if (isArabic) {
-                                "عضوية Aura Pulse Premium مفعّلة! كل شيء مفتوح مجاناً الآن: جميع الثيمات، شريط الموجة (Seekbar)، فك قفل التمرير، وجميع إعدادات النظام المتقدمة. 👑✨"
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = if (isPremiumActivated) {
+                                if (isArabic) {
+                                    "عضوية Aura Pulse Premium مفعّلة! جميع الثيمات، شريط الموجة (Seekbar)، فك قفل التمرير، وجميع إعدادات النظام المتقدمة مفتوحة الآن. 👑✨"
+                                } else {
+                                    "Aura Pulse Premium is active! All Store Themes, Waveform Seekbar, Player Seek unlock, and advanced system controls are unlocked. 👑✨"
+                                }
                             } else {
-                                "Aura Pulse Premium is active! Everything is unlocked FREE: all Store Themes, Waveform Seekbar, Player Seek unlock, and all advanced settings. 👑✨"
-                            }
-                        } else {
-                            if (isArabic) {
-                                "ميزة Premium الذهبية: تفتح كل شيء في التطبيق مجاناً!\n• جميع ثيمات المتجر (10+ ثيمات مجاناً بدون مفاتيح)\n• شريط الموجة الصوتية (Waveform Seekbar) مجاناً\n• فك قفل التمرير و PiP والتشغيل بالخلفية\n• جميع إعدادات المظهر واللغة والخزنة السرية\n\nاضغط تفعيل لفتح كل شيء مجاناً الآن."
-                            } else {
-                                "Aura Pulse Premium unlocks EVERYTHING for free!\n• All 10+ Store Themes free (0 Keys)\n• Waveform Audio Seekbar free (0 Keys)\n• Instant Player Seek, PiP & Background Play\n• Theme Mode, Language & Secret PIN Vault\n\nTap Activate to unlock everything free now."
-                            }
-                        },
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            color = aura.textPrimary,
-                            textAlign = TextAlign.Center
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                                if (isArabic) {
+                                    "أدخل رمز التفعيل (Redeem Code) الخاص بـ Aura Pulse Premium لفتح جميع المزايا المتقدمة والثيمات."
+                                } else {
+                                    "Enter your Aura Pulse Premium Redeem Code to unlock all themes and advanced player controls."
+                                }
+                            },
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                color = aura.textPrimary,
+                                textAlign = TextAlign.Center
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        if (!isPremiumActivated) {
+                            OutlinedTextField(
+                                value = premiumCodeInput,
+                                onValueChange = {
+                                    premiumCodeInput = it
+                                    premiumCodeError = null
+                                },
+                                singleLine = true,
+                                placeholder = {
+                                    Text(if (isArabic) "أدخل كود التفعيل..." else "Enter redeem code...")
+                                },
+                                isError = premiumCodeError != null,
+                                supportingText = {
+                                    premiumCodeError?.let { err ->
+                                        Text(err, color = aura.accentDanger)
+                                    }
+                                },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = aura.accentGold,
+                                    unfocusedBorderColor = aura.borderSubtle,
+                                    focusedTextColor = aura.textPrimary,
+                                    unfocusedTextColor = aura.textPrimary
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("settings_premium_redeem_input")
+                            )
+                        }
+                    }
                 },
                 confirmButton = {
                     TextButton(
                         onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            val target = !isPremiumActivated
-                            streakViewModel.setPremiumActivated(target, isArabic = isArabic)
-                            showPremiumDialog = false
-                        }
+                            if (isPremiumActivated) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                streakViewModel.setPremiumActivated(false, isArabic = isArabic)
+                                showPremiumDialog = false
+                            } else if (SecurityUtils.verifyPremiumRedeemCode(premiumCodeInput)) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                streakViewModel.setPremiumActivated(true, isArabic = isArabic)
+                                premiumCodeInput = ""
+                                premiumCodeError = null
+                                showPremiumDialog = false
+                            } else {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                premiumCodeError = if (isArabic) "كود التفعيل غير صحيح" else "Invalid redeem code"
+                            }
+                        },
+                        modifier = Modifier.testTag("settings_premium_confirm_button")
                     ) {
                         Text(
                             text = if (isPremiumActivated) {
                                 if (isArabic) "إيقاف التفعيل" else "Deactivate"
                             } else {
-                                if (isArabic) "تفعيل الآن 👑" else "Activate Now 👑"
+                                if (isArabic) "تفعيل الكود 👑" else "Redeem & Activate 👑"
                             },
                             color = if (isPremiumActivated) aura.accentFlame else aura.accentGold,
                             fontWeight = FontWeight.ExtraBold
@@ -1116,7 +1234,11 @@ fun SystemSettingsScreen(
                 text = {
                     Column {
                         Text(
-                            text = if (isArabic) "أدخل رمز PIN المكون من 4 أرقام لفتح الخزنة السرية (الافتراضي: 1234)" else "Enter your 4-digit PIN (Default: 1234)",
+                            text = when {
+                                hasCustomVaultPin -> if (isArabic) "أدخل رمز PIN الخاص بك لفتح الخزنة السرية" else "Enter your 4-digit Vault PIN"
+                                isArabic -> "أدخل رمز PIN المكون من 4 أرقام لفتح الخزنة السرية (الافتراضي: 1234)"
+                                else -> "Enter your 4-digit PIN (Default: 1234)"
+                            },
                             style = MaterialTheme.typography.bodySmall.copy(color = aura.textSecondary, fontSize = 12.sp)
                         )
                         Spacer(modifier = Modifier.height(14.dp))
@@ -1129,11 +1251,12 @@ fun SystemSettingsScreen(
                                 }
                             },
                             singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
                             placeholder = { Text("****") },
                             isError = vaultPinError != null,
                             supportingText = {
-                                if (vaultPinError != null) {
-                                    Text(vaultPinError!!, color = aura.accentDanger)
+                                vaultPinError?.let { err ->
+                                    Text(err, color = aura.accentDanger)
                                 }
                             },
                             colors = OutlinedTextFieldDefaults.colors(
@@ -1149,9 +1272,11 @@ fun SystemSettingsScreen(
                 confirmButton = {
                     TextButton(
                         onClick = {
-                            if (vaultPinInput == vaultSavedPin) {
+                            if (streakViewModel.verifyVaultPin(vaultPinInput)) {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 isVaultUnlocked = true
+                                vaultPinInput = ""
+                                vaultPinError = null
                                 showVaultAuthDialog = false
                             } else {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -1164,6 +1289,78 @@ fun SystemSettingsScreen(
                 },
                 dismissButton = {
                     TextButton(onClick = { showVaultAuthDialog = false }) {
+                        Text(text = if (isArabic) "إلغاء" else "Cancel", color = aura.textSecondary)
+                    }
+                }
+            )
+        }
+
+        // Change Vault PIN Dialog (only shown while Vault is unlocked)
+        if (showChangeVaultPinDialog) {
+            AlertDialog(
+                onDismissRequest = { showChangeVaultPinDialog = false },
+                containerColor = aura.dialogBg,
+                title = {
+                    Text(
+                        text = if (isArabic) "تعيين رمز PIN جديد للخزنة" else "Set New Vault PIN",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = aura.textPrimary)
+                    )
+                },
+                text = {
+                    Column {
+                        Text(
+                            text = if (isArabic) "اختر رمزاً جديداً من 4 أرقام لحماية الخزنة السرية." else "Choose a new 4-digit PIN for your Vault.",
+                            style = MaterialTheme.typography.bodySmall.copy(color = aura.textSecondary, fontSize = 12.sp)
+                        )
+                        Spacer(modifier = Modifier.height(14.dp))
+                        OutlinedTextField(
+                            value = newVaultPinInput,
+                            onValueChange = {
+                                if (it.length <= 4 && it.all { char -> char.isDigit() }) {
+                                    newVaultPinInput = it
+                                    vaultPinError = null
+                                }
+                            },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            placeholder = { Text("****") },
+                            isError = vaultPinError != null,
+                            supportingText = {
+                                vaultPinError?.let { err ->
+                                    Text(err, color = aura.accentDanger)
+                                }
+                            },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = aura.accentCyan,
+                                unfocusedBorderColor = aura.borderSubtle,
+                                focusedTextColor = aura.textPrimary,
+                                unfocusedTextColor = aura.textPrimary
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            if (newVaultPinInput.length == 4 && newVaultPinInput.all { it.isDigit() }) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                streakViewModel.saveVaultPin(newVaultPinInput)
+                                hasCustomVaultPin = true
+                                newVaultPinInput = ""
+                                vaultPinError = null
+                                showChangeVaultPinDialog = false
+                                feedbackMessage = if (isArabic) "تم حفظ رمز PIN الجديد بأمان 🔒" else "New Vault PIN saved securely 🔒"
+                            } else {
+                                vaultPinError = if (isArabic) "أدخل 4 أرقام بالضبط" else "Enter exactly 4 digits"
+                            }
+                        }
+                    ) {
+                        Text(text = if (isArabic) "حفظ" else "Save", color = aura.accentCyan, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showChangeVaultPinDialog = false }) {
                         Text(text = if (isArabic) "إلغاء" else "Cancel", color = aura.textSecondary)
                     }
                 }

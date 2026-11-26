@@ -446,6 +446,8 @@ object MediaRepository {
     val defaultLocalVideos: List<LocalDeviceVideo> = emptyList()
 }
 
+const val MAX_SHORT_VIDEO_DURATION_MS: Long = 30L * 60L * 1000L // 30 minutes max
+
 data class LocalDeviceVideo(
     val id: String,
     val title: String,
@@ -459,8 +461,32 @@ data class LocalDeviceVideo(
     val bitmap: android.graphics.Bitmap? = null,
     val isFromGallery: Boolean = false,
     val folderName: String = "Device Storage",
-    val relativePath: String? = null
+    val relativePath: String? = null,
+    val durationMs: Long = 0L,
+    val width: Int = 0,
+    val height: Int = 0,
+    val rotationDegrees: Int = 0,
+    val isPortrait: Boolean = false
 )
+
+fun LocalDeviceVideo.effectiveDisplayDimensions(): Pair<Int, Int> {
+    val normalizedRot = ((rotationDegrees % 360) + 360) % 360
+    return if (normalizedRot == 90 || normalizedRot == 270) {
+        height to width
+    } else {
+        width to height
+    }
+}
+
+fun LocalDeviceVideo.isEligibleShortVideo(): Boolean {
+    if (!isPortrait) return false
+    val resolvedDurationMs = if (durationMs > 0L) {
+        durationMs
+    } else {
+        com.example.data.util.LocalMediaScanner.parseDurationTextToMs(durationText)
+    }
+    return resolvedDurationMs in 1L..MAX_SHORT_VIDEO_DURATION_MS
+}
 
 fun LocalDeviceVideo.isNewWithinDays(
     days: Int,

@@ -66,6 +66,7 @@ import com.example.data.model.LocalAudioTrack
 import com.example.data.preferences.StreakPreferencesRepository
 import com.example.data.preferences.UserAudioPlaylist
 import com.example.data.util.LocalMediaScanner
+import com.example.ui.components.LocalFloatingBottomBarPadding
 import com.example.ui.theme.AuraAtmosphericLayer
 import com.example.ui.theme.aura
 import com.example.ui.theme.stableStatusBarsPadding
@@ -450,7 +451,7 @@ fun ListenScreen(
     }
 
     val aura = MaterialTheme.aura
-    val navBarBottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val bottomDockPadding = LocalFloatingBottomBarPadding.current
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -465,7 +466,7 @@ fun ListenScreen(
                 .fillMaxSize()
                 .widthIn(max = 640.dp)
                 .align(Alignment.TopCenter),
-            contentPadding = PaddingValues(bottom = 96.dp + navBarBottomPad)
+            contentPadding = PaddingValues(bottom = bottomDockPadding + 92.dp)
         ) {
             item {
                 Spacer(modifier = Modifier.stableStatusBarsPadding())
@@ -621,8 +622,7 @@ fun ListenScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .widthIn(max = 640.dp)
-                .navigationBarsPadding()
-                .padding(bottom = 10.dp)
+                .padding(bottom = bottomDockPadding + 6.dp)
         )
 
         // Full-Screen Immersive Now Playing Overlay

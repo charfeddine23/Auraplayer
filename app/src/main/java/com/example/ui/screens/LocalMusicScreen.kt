@@ -81,15 +81,22 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.example.data.model.LocalAudioTrack
 import com.example.data.preferences.UserAudioPlaylist
 import com.example.data.util.LocalMediaScanner
+import com.example.data.util.OnlineFolderCoverFetcher
+import com.example.ui.components.LocalFloatingBottomBarPadding
 import com.example.ui.theme.AuraAtmosphericLayer
 import com.example.ui.theme.aura
 import com.example.ui.theme.stableStatusBarsPadding
+import com.example.ui.viewmodel.WatchViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.Locale
 
 private enum class LocalMusicTab(val labelEn: String, val labelAr: String) {
@@ -208,13 +215,32 @@ internal fun LocalMusicScreen(
                 )
         )
 
-        val navBarBottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        val bottomDockPadding = LocalFloatingBottomBarPadding.current
+        val watchViewModel: WatchViewModel = viewModel()
+        val watchSettings by watchViewModel.watchSettings.collectAsStateWithLifecycle()
+        val cachedFolderCovers by watchViewModel.cachedFolderCovers.collectAsStateWithLifecycle()
+
+        val musicFolderNames = remember(filteredSortedTracks) {
+            filteredSortedTracks.map { it.folderName }.filter { it.isNotBlank() }.distinct()
+        }
+        LaunchedEffect(selectedTab, musicFolderNames, watchSettings.autoFetchOnlineFolderCovers) {
+            if (selectedTab == LocalMusicTab.FOLDERS &&
+                watchSettings.autoFetchOnlineFolderCovers &&
+                musicFolderNames.isNotEmpty()
+            ) {
+                watchViewModel.syncFolderCovers(
+                    folderNames = musicFolderNames,
+                    isMusicFolder = true
+                )
+            }
+        }
+
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .widthIn(max = 640.dp)
                 .align(Alignment.TopCenter),
-            contentPadding = PaddingValues(bottom = 104.dp + navBarBottomPad)
+            contentPadding = PaddingValues(bottom = bottomDockPadding + 96.dp)
         ) {
             // Hero Square Card showcasing cover art of the most-listened song
             item {
@@ -746,10 +772,14 @@ internal fun LocalMusicScreen(
                         .sortedBy { it.key.lowercase(Locale.getDefault()) }
 
                     items(groupedFolders) { (folderName, folderTracks) ->
+                        val coverPath = if (watchSettings.autoFetchOnlineFolderCovers) {
+                            cachedFolderCovers[OnlineFolderCoverFetcher.buildFolderCacheKey(folderName, true)]?.localFilePath
+                        } else null
                         LocalGroupRow(
                             title = folderName,
                             subtitle = if (isArabic) "${folderTracks.size} مقطع" else "${folderTracks.size} tracks",
-                            leadingTrack = null,
+                            leadingTrack = folderTracks.firstOrNull(),
+                            coverFilePath = coverPath,
                             fallbackIcon = Icons.Default.Folder,
                             onClick = {
                                 activeFilterLabel = folderName
@@ -1073,11 +1103,16 @@ private fun LocalGroupRow(
     title: String,
     subtitle: String,
     leadingTrack: LocalAudioTrack?,
+    coverFilePath: String? = null,
     fallbackIcon: androidx.compose.ui.graphics.vector.ImageVector,
     iconTint: Color = MaterialTheme.aura.textPrimary,
     onClick: () -> Unit
 ) {
     val aura = MaterialTheme.aura
+    val context = LocalContext.current
+    val coverFile = remember(coverFilePath) {
+        coverFilePath?.takeIf { it.isNotBlank() }?.let(::File)?.takeIf { it.exists() }
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1092,7 +1127,17 @@ private fun LocalGroupRow(
                 .background(aura.surfaceCard),
             contentAlignment = Alignment.Center
         ) {
-            if (leadingTrack?.albumArtUri != null) {
+            if (coverFile != null) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(coverFile)
+                        .crossfade(false)
+                        .build(),
+                    contentDescription = title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else if (leadingTrack?.albumArtUri != null) {
                 AsyncImage(
                     model = leadingTrack.albumArtUri,
                     contentDescription = title,

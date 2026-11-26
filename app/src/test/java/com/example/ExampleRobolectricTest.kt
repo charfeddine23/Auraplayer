@@ -98,4 +98,24 @@ class ExampleRobolectricTest {
       permissions.contains(android.Manifest.permission.REQUEST_INSTALL_PACKAGES)
     )
   }
+
+  @Test
+  fun `verify PlayInAppUpdateController initializes safely and computes download progress`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val controller = com.example.data.update.PlayInAppUpdateController(context)
+    controller.registerListener()
+    val initial = controller.uiState.value
+    org.junit.Assert.assertFalse(initial.isDownloading)
+    org.junit.Assert.assertFalse(initial.isDownloadedReadyToInstall)
+    assertEquals(0, initial.progressPercent)
+    controller.unregisterListener()
+
+    val halfDownloaded = com.example.data.update.PlayInAppUpdateUiState(
+      isDownloading = true,
+      bytesDownloaded = 5_000_000L,
+      totalBytesToDownload = 10_000_000L
+    )
+    assertEquals(50, halfDownloaded.progressPercent)
+    assertEquals(0.5f, halfDownloaded.downloadProgress, 0.001f)
+  }
 }

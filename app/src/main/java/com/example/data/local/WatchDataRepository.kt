@@ -10,7 +10,8 @@ data class WatchSettingsConfig(
     val showSearchBar: Boolean = true,
     val hideShortClips: Boolean = false,
     val showNewVideoBadge: Boolean = true,
-    val newVideoBadgeDays: Int = 7
+    val newVideoBadgeDays: Int = 7,
+    val autoFetchOnlineFolderCovers: Boolean = true
 )
 
 data class VideoBookmarkGroup(
@@ -25,7 +26,8 @@ data class VideoBookmarkGroup(
 
 class WatchDataRepository(
     private val watchSettingsDao: WatchSettingsDao,
-    private val bookmarkDao: VideoBookmarkDao
+    private val bookmarkDao: VideoBookmarkDao,
+    private val folderCoverCacheDao: FolderCoverCacheDao? = null
 ) {
     val watchSettingsFlow: Flow<WatchSettingsConfig> =
         watchSettingsDao.observeWatchSettings().map { entity ->
@@ -39,10 +41,18 @@ class WatchDataRepository(
                     showSearchBar = entity.showSearchBar,
                     hideShortClips = entity.hideShortClips,
                     showNewVideoBadge = entity.showNewVideoBadge,
-                    newVideoBadgeDays = entity.newVideoBadgeDays.coerceIn(1, 365)
+                    newVideoBadgeDays = entity.newVideoBadgeDays.coerceIn(1, 365),
+                    autoFetchOnlineFolderCovers = entity.autoFetchOnlineFolderCovers
                 )
             }
         }
+
+    val folderCoverCacheFlow: Flow<Map<String, FolderCoverCacheEntity>> =
+        folderCoverCacheDao?.observeAll()?.map { list ->
+            list.filter {
+                it.status == FolderCoverCacheEntity.STATUS_CACHED && !it.localFilePath.isNullOrBlank()
+            }.associateBy { it.folderKey }
+        } ?: kotlinx.coroutines.flow.flowOf(emptyMap())
 
     val bookmarkGroupsFlow: Flow<List<VideoBookmarkGroup>> =
         bookmarkDao.observeAllBookmarks().map { allBookmarks ->
@@ -133,5 +143,9 @@ class WatchDataRepository(
 
     suspend fun setNewVideoBadgeDays(days: Int) = updateSettings {
         it.copy(newVideoBadgeDays = days.coerceIn(1, 365))
+    }
+
+    suspend fun setAutoFetchOnlineFolderCovers(enabled: Boolean) = updateSettings {
+        it.copy(autoFetchOnlineFolderCovers = enabled)
     }
 }

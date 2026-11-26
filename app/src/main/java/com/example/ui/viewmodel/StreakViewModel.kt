@@ -198,6 +198,12 @@ class StreakViewModel(
     private val _isMimicDnaEnabled = MutableStateFlow(repository.isMimicDnaEnabled())
     val isMimicDnaEnabled: StateFlow<Boolean> = _isMimicDnaEnabled.asStateFlow()
 
+    private val _likedShortKeys = MutableStateFlow(repository.getLikedShortKeys())
+    val likedShortKeys: StateFlow<Set<String>> = _likedShortKeys.asStateFlow()
+
+    private val _savedShortKeys = MutableStateFlow(repository.getSavedShortKeys())
+    val savedShortKeys: StateFlow<Set<String>> = _savedShortKeys.asStateFlow()
+
     private val _purchasedMimicIds = MutableStateFlow(repository.getPurchasedMimicIds())
     val purchasedMimicIds: StateFlow<Set<String>> = _purchasedMimicIds.asStateFlow()
 
@@ -426,8 +432,9 @@ class StreakViewModel(
     fun incrementTrackListened() = repository.incrementTrackListened()
 
     // Hidden Vault
-    fun getVaultPin(): String? = repository.getVaultPin()
-    fun saveVaultPin(pin: String) = repository.saveVaultPin(pin)
+    fun hasCustomVaultPin(): Boolean = repository.hasCustomVaultPin()
+    fun verifyVaultPin(pin: String): Boolean = repository.verifyVaultPin(pin)
+    fun saveVaultPin(pin: String): Boolean = repository.saveVaultPin(pin)
     fun getVaultMediaIds(): Set<String> = repository.getVaultMediaIds()
     fun toggleVaultMedia(id: String): Boolean = repository.toggleVaultMedia(id)
 
@@ -468,6 +475,8 @@ class StreakViewModel(
         if (ok) {
             _uiState.value = repository.loadInitialState()
             _xpState.value = repository.loadRoadmapXpState()
+            _userName.value = repository.getUserName()
+            _isFullScreenMode.value = repository.isFullScreenModeEnabled()
         }
         return ok
     }
@@ -527,8 +536,14 @@ class StreakViewModel(
     fun setBackgroundPlayEnabled(enabled: Boolean) = repository.setBackgroundPlayEnabled(enabled)
     fun isPipModeEnabled(): Boolean = repository.isPipModeEnabled()
     fun setPipModeEnabled(enabled: Boolean) = repository.setPipModeEnabled(enabled)
+    private val _isEyeProtectionEnabled = MutableStateFlow(repository.isEyeProtectionEnabled())
+    val isEyeProtectionEnabled: StateFlow<Boolean> = _isEyeProtectionEnabled.asStateFlow()
+
     fun isEyeProtectionEnabled(): Boolean = repository.isEyeProtectionEnabled()
-    fun setEyeProtectionEnabled(enabled: Boolean) = repository.setEyeProtectionEnabled(enabled)
+    fun setEyeProtectionEnabled(enabled: Boolean) {
+        repository.setEyeProtectionEnabled(enabled)
+        _isEyeProtectionEnabled.value = enabled
+    }
 
     private val _isFullScreenMode = MutableStateFlow(repository.isFullScreenModeEnabled())
     val isFullScreenMode: StateFlow<Boolean> = _isFullScreenMode.asStateFlow()
@@ -540,6 +555,18 @@ class StreakViewModel(
 
     fun getLastStatusBarHeightDp(): Float = repository.getLastStatusBarHeightDp()
     fun saveLastStatusBarHeightDp(heightDp: Float) = repository.saveLastStatusBarHeightDp(heightDp)
+
+    fun toggleShortLike(videoKey: String) {
+        _likedShortKeys.value = repository.toggleShortLike(videoKey)
+    }
+
+    fun ensureShortLiked(videoKey: String) {
+        _likedShortKeys.value = repository.setShortLiked(videoKey, true)
+    }
+
+    fun toggleShortSave(videoKey: String) {
+        _savedShortKeys.value = repository.toggleShortSave(videoKey)
+    }
 
     // 365-Level Progression & Feature Vault
     fun getClaimedVaultLevels(): Set<Int> = repository.getClaimedVaultLevels()

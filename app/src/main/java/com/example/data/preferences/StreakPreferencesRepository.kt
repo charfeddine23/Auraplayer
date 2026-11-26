@@ -15,6 +15,7 @@ import com.example.data.model.PlayerSeekbarStyle
 import com.example.data.model.RoadmapXpState
 import com.example.data.model.StoreAvatarItem
 import com.example.data.model.VaultProgressionRegistry
+import com.example.data.util.SecurityUtils
 import com.example.ui.theme.AppLanguage
 import com.example.ui.theme.StoreTheme
 import com.example.ui.theme.ThemeMode
@@ -122,6 +123,8 @@ class StreakPreferencesRepository private constructor(context: Context) {
 
         // Hidden Vault & 365-Level XP Roadmap
         private const val KEY_VAULT_PIN = "key_vault_pin"
+        private const val KEY_VAULT_PIN_HASH = "key_vault_pin_hash"
+        private const val KEY_VAULT_PIN_SALT = "key_vault_pin_salt"
         private const val KEY_VAULT_MEDIA_IDS = "key_vault_media_ids"
         private const val KEY_CLAIMED_VAULT_LEVELS = "key_claimed_vault_levels"
         private const val KEY_ROADMAP_UNLOCKED_LEVEL = "key_roadmap_unlocked_level"
@@ -167,6 +170,8 @@ class StreakPreferencesRepository private constructor(context: Context) {
         private const val KEY_FLAME_FORGE_2_REFUND_SILVER = "key_flame_forge_2_refund_silver"
         private const val KEY_FLAME_FORGE_2_REFUND_DIAMOND = "key_flame_forge_2_refund_diamond"
         private const val KEY_MY_LIST_MEDIA_IDS = "key_my_list_media_ids"
+        private const val KEY_SHORT_LIKED_VIDEO_KEYS = "key_short_liked_video_keys"
+        private const val KEY_SHORT_SAVED_VIDEO_KEYS = "key_short_saved_video_keys"
 
         @Volatile
         private var instance: StreakPreferencesRepository? = null
@@ -1160,12 +1165,44 @@ class StreakPreferencesRepository private constructor(context: Context) {
     }
 
     // --- Hidden Vault (PIN / Biometric) ---
-    fun getVaultPin(): String? {
-        return prefs.getString(KEY_VAULT_PIN, null)
+    fun hasCustomVaultPin(): Boolean {
+        val hash = prefs.getString(KEY_VAULT_PIN_HASH, null)
+        val salt = prefs.getString(KEY_VAULT_PIN_SALT, null)
+        if (!hash.isNullOrBlank() && !salt.isNullOrBlank()) return true
+        val legacy = prefs.getString(KEY_VAULT_PIN, null)
+        return !legacy.isNullOrBlank()
     }
 
-    fun saveVaultPin(pin: String) {
-        prefs.edit().putString(KEY_VAULT_PIN, pin).apply()
+    fun verifyVaultPin(pin: String): Boolean {
+        if (pin.isBlank()) return false
+        val savedHash = prefs.getString(KEY_VAULT_PIN_HASH, null)
+        val savedSalt = prefs.getString(KEY_VAULT_PIN_SALT, null)
+        if (!savedHash.isNullOrBlank() && !savedSalt.isNullOrBlank()) {
+            return SecurityUtils.verifyVaultPinHash(pin, savedSalt, savedHash)
+        }
+        val legacyPin = prefs.getString(KEY_VAULT_PIN, null)
+        if (!legacyPin.isNullOrBlank()) {
+            val matched = legacyPin == pin
+            if (matched) {
+                saveVaultPin(legacyPin)
+            }
+            return matched
+        }
+        val defaultHash = SecurityUtils.hashDefaultVaultPin("1234")
+        return SecurityUtils.verifyVaultPinHash(pin, SecurityUtils.defaultVaultSalt(), defaultHash)
+    }
+
+    fun saveVaultPin(pin: String): Boolean {
+        val trimmed = pin.trim()
+        if (trimmed.length != 4 || !trimmed.all { it.isDigit() }) return false
+        val salt = SecurityUtils.generateSaltHex()
+        val digest = SecurityUtils.hashVaultPin(trimmed, salt)
+        prefs.edit()
+            .putString(KEY_VAULT_PIN_SALT, salt)
+            .putString(KEY_VAULT_PIN_HASH, digest)
+            .remove(KEY_VAULT_PIN)
+            .apply()
+        return true
     }
 
     fun getVaultMediaIds(): Set<String> {
@@ -1538,6 +1575,69 @@ class StreakPreferencesRepository private constructor(context: Context) {
         val updated = current.map { if (it == oldKey) newKey else it }.distinct()
         saveOrderedStringList(KEY_PINNED_FOLDER_NAMES, updated)
         return updated
+    }
+
+    fun getLikedShortKeys(): Set<String> = getShortLikedVideoKeys()
+
+    fun getSavedShortKeys(): Set<String> = getShortSavedVideoKeys().toSet()
+
+    fun toggleShortLike(videoKey: String): Set<String> {
+        val current = getShortLikedVideoKeys()
+        val updated = if (current.contains(videoKey)) current - videoKey else current + videoKey
+        prefs.edit().putStringSet(KEY_SHORT_LIKED_VIDEO_KEYS, updated).apply()
+        return updated
+    }
+
+    fun setShortLiked(videoKey: String, liked: Boolean): Set<String> {
+        val current = getShortLikedVideoKeys()
+        val updated = if (liked) current + videoKey else current - videoKey
+        prefs.edit().putStringSet(KEY_SHORT_LIKED_VIDEO_KEYS, updated).apply()
+        return updated
+    }
+
+    fun toggleShortSave(videoKey: String): Set<String> {
+        val current = getShortSavedVideoKeys().toMutableList()
+        if (current.contains(videoKey)) {
+            current.removeAll { it == videoKey }
+        } else {
+            current.add(0, videoKey)
+        }
+        saveOrderedStringList(KEY_SHORT_SAVED_VIDEO_KEYS, current)
+        return current.toSet()
+    }
+
+    fun getShortLikedVideoKeys(): Set<String> {
+        return prefs.getStringSet(KEY_SHORT_LIKED_VIDEO_KEYS, emptySet())?.toSet() ?: emptySet()
+    }
+
+    fun setShortLiked(id: String, uriString: String?, liked: Boolean): Set<String> {
+        val key = canonicalVideoKey(id, uriString)
+        val current = getShortLikedVideoKeys()
+        val updated = if (liked) current + key else current - key
+        prefs.edit().putStringSet(KEY_SHORT_LIKED_VIDEO_KEYS, updated).apply()
+        return updated
+    }
+
+    fun toggleShortLike(id: String, uriString: String?): Set<String> {
+        val key = canonicalVideoKey(id, uriString)
+        val current = getShortLikedVideoKeys()
+        val updated = if (current.contains(key)) current - key else current + key
+        prefs.edit().putStringSet(KEY_SHORT_LIKED_VIDEO_KEYS, updated).apply()
+        return updated
+    }
+
+    fun getShortSavedVideoKeys(): List<String> = readOrderedStringList(KEY_SHORT_SAVED_VIDEO_KEYS)
+
+    fun toggleShortSaved(id: String, uriString: String?): List<String> {
+        val key = canonicalVideoKey(id, uriString)
+        val current = getShortSavedVideoKeys().toMutableList()
+        if (current.contains(key)) {
+            current.removeAll { it == key }
+        } else {
+            current.add(0, key)
+        }
+        saveOrderedStringList(KEY_SHORT_SAVED_VIDEO_KEYS, current)
+        return current
     }
 
     fun getWatchHistory(): List<VideoProgressInfo> {

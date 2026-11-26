@@ -13,9 +13,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         VideoBookmarkEntity::class,
         WatchSettingsEntity::class,
         HomeMimicEntity::class,
-        CyberAvatarStateEntity::class
+        CyberAvatarStateEntity::class,
+        FolderCoverCacheEntity::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -24,6 +25,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun watchSettingsDao(): WatchSettingsDao
     abstract fun homeMimicDao(): HomeMimicDao
     abstract fun cyberAvatarDao(): CyberAvatarDao
+    abstract fun folderCoverCacheDao(): FolderCoverCacheDao
 
     companion object {
         @Volatile
@@ -85,6 +87,28 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS folder_cover_cache (
+                        folderKey TEXT NOT NULL PRIMARY KEY,
+                        displayName TEXT NOT NULL,
+                        sourceUrl TEXT,
+                        localFilePath TEXT,
+                        sourceProvider TEXT NOT NULL,
+                        width INTEGER NOT NULL,
+                        height INTEGER NOT NULL,
+                        isMusicFolder INTEGER NOT NULL,
+                        status TEXT NOT NULL,
+                        fetchedAtMs INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("ALTER TABLE watch_settings ADD COLUMN autoFetchOnlineFolderCovers INTEGER NOT NULL DEFAULT 1")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -92,8 +116,15 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "aura_pulse_player_db"
                 )
-                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
-                    .fallbackToDestructiveMigration(dropAllTables = true)
+                    .addMigrations(
+                        MIGRATION_2_3,
+                        MIGRATION_3_4,
+                        MIGRATION_4_5,
+                        MIGRATION_5_6,
+                        MIGRATION_6_7,
+                        MIGRATION_7_8
+                    )
+                    .fallbackToDestructiveMigrationOnDowngrade(dropAllTables = true)
                     .build()
                     .also { INSTANCE = it }
             }

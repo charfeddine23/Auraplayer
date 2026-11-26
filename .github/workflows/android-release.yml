@@ -35,6 +35,43 @@ jobs:
           java-version: '21'
           cache: 'gradle'
 
+      - name: Configure Keystore for Consistent Release Signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          STORE_PASS: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASS: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          REPO_KEYSTORE="${{ github.workspace }}/my-upload-key.jks"
+          TEMP_KEYSTORE="${{ runner.temp }}/release-upload-key.jks"
+
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "Decoding persistent release keystore from GitHub Secret..."
+            printf '%s' "$KEYSTORE_BASE64" | tr -d '[:space:]' | base64 --decode > "$TEMP_KEYSTORE"
+            if [ ! -s "$TEMP_KEYSTORE" ]; then
+              echo "::error::Decoded KEYSTORE_BASE64 is empty. Ensure KEYSTORE_BASE64 contains valid base64 of your .jks keystore."
+              exit 1
+            fi
+            KEYSTORE_FILE="$TEMP_KEYSTORE"
+          elif [ -f "$REPO_KEYSTORE" ]; then
+            echo "Using repository persistent release keystore (my-upload-key.jks) to preserve upgrade compatibility."
+            KEYSTORE_FILE="$REPO_KEYSTORE"
+          else
+            echo "::error::Missing KEYSTORE_BASE64 secret (and no my-upload-key.jks in repo). Add KEYSTORE_BASE64, STORE_PASSWORD, and KEY_PASSWORD in GitHub Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+
+          if [ -z "$STORE_PASS" ] || [ -z "$KEY_PASS" ]; then
+            echo "::error::Missing STORE_PASSWORD or KEY_PASSWORD secret in GitHub Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+
+          if ! keytool -list -keystore "$KEYSTORE_FILE" -storepass "$STORE_PASS" -alias upload >/dev/null 2>&1; then
+            echo "::error::Failed to open keystore '$KEYSTORE_FILE' with alias 'upload'. Verify KEYSTORE_BASE64 and STORE_PASSWORD."
+            exit 1
+          fi
+
+          echo "KEYSTORE_PATH=$KEYSTORE_FILE" >> "$GITHUB_ENV"
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
@@ -134,33 +171,16 @@ jobs:
           print(f"Target APK filename: {apk_filename}")
           PYEOF
 
-      - name: Configure Keystore for Consistent Release Signing
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-          STORE_PASS: ${{ secrets.STORE_PASSWORD }}
-          KEY_PASS: ${{ secrets.KEY_PASSWORD }}
-        run: |
-          KEYSTORE_FILE="${{ github.workspace }}/my-upload-key.jks"
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "Decoding persistent release keystore from GitHub Secret..."
-            echo "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_FILE"
-          elif [ -f "$KEYSTORE_FILE" ]; then
-            echo "Using repository persistent release keystore (my-upload-key.jks) to preserve upgrade compatibility."
-          else
-            echo "::error::Missing my-upload-key.jks and KEYSTORE_BASE64 secret. Refusing to generate a mismatched key that would break in-place app updates."
-            exit 1
-          fi
-
-          echo "KEYSTORE_PATH=$KEYSTORE_FILE" >> $GITHUB_ENV
-          echo "STORE_PASSWORD=${STORE_PASS:-android}" >> $GITHUB_ENV
-          echo "KEY_PASSWORD=${KEY_PASS:-android}" >> $GITHUB_ENV
-
       - name: Build Signed Release APK
         env:
           KEYSTORE_PATH: ${{ env.KEYSTORE_PATH }}
-          STORE_PASSWORD: ${{ env.STORE_PASSWORD }}
-          KEY_PASSWORD: ${{ env.KEY_PASSWORD }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: ./gradlew assembleRelease --stacktrace
+
+      - name: Clean Up Temporary Keystore
+        if: always()
+        run: rm -f "${{ runner.temp }}/release-upload-key.jks"
 
       - name: Verify Signature & Rename APK
         run: |
@@ -185,7 +205,7 @@ jobs:
             "$BUILD_TOOLS_DIR/aapt2" dump badging "$FINAL_APK" | head -n 5
           fi
 
-          echo "FINAL_APK_PATH=$FINAL_APK" >> $GITHUB_ENV
+          echo "FINAL_APK_PATH=$FINAL_APK" >> "$GITHUB_ENV"
           echo "Prepared signed release APK: $FINAL_APK"
 
       - name: Commit Incremented Version to Repository

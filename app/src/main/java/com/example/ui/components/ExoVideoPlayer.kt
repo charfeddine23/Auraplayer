@@ -111,6 +111,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
@@ -174,6 +176,9 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.MediaItem as ExoMediaItem
@@ -191,6 +196,7 @@ import com.example.data.model.MediaItem
 import com.example.data.model.PlayerSeekbarStyle
 import com.example.data.model.VaultProgressionRegistry
 import com.example.data.util.LocalMediaScanner
+import com.example.data.util.SecurityUtils
 import com.example.ui.theme.Charcoal950
 import com.example.ui.viewmodel.PlayerAmbientViewModel
 import com.example.ui.viewmodel.StreakViewModel
@@ -350,8 +356,11 @@ fun ExoVideoPlayer(
     var showStrikeLockPopup by remember { mutableStateOf(false) }
     var strikeLockPopupMessage by remember { mutableStateOf("Locked until daily goal is reached.") }
     var showPremiumUnlockDialog by remember { mutableStateOf(false) }
+    var playerPremiumCodeInput by remember { mutableStateOf("") }
+    var playerPremiumCodeError by remember { mutableStateOf<String?>(null) }
     var lockedPremiumFeatureName by remember { mutableStateOf("") }
     var isBackgroundPlayActive by remember { mutableStateOf(prefsRepo.isBackgroundPlayEnabled()) }
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     var gestureOverlayType by remember { mutableStateOf<String?>(null) }
     var seekPreviewText by remember { mutableStateOf("") }
@@ -571,6 +580,8 @@ fun ExoVideoPlayer(
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         if (requiredDay > 0) {
             lockedPremiumFeatureName = featureName
+            playerPremiumCodeInput = ""
+            playerPremiumCodeError = null
             showPremiumUnlockDialog = true
         } else {
             strikeLockPopupMessage =
@@ -582,6 +593,8 @@ fun ExoVideoPlayer(
     fun triggerPremiumFeatureLock(featureName: String) {
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         lockedPremiumFeatureName = featureName
+        playerPremiumCodeInput = ""
+        playerPremiumCodeError = null
         showPremiumUnlockDialog = true
     }
 
@@ -812,6 +825,27 @@ fun ExoVideoPlayer(
             exoPlayer.removeListener(listener)
             exoPlayer.release()
             (context as? Activity)?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
+
+    // Pause playback on backgrounding unless Background Play is active with Premium (or in PiP)
+    DisposableEffect(lifecycleOwner, exoPlayer, isBackgroundPlayActive, isPremiumActivated) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE) {
+                val inPip = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    (context as? Activity)?.isInPictureInPictureMode == true
+                } else {
+                    false
+                }
+                val allowBackground = isPremiumActivated && isBackgroundPlayActive
+                if (!allowBackground && !inPip && exoPlayer.isPlaying) {
+                    exoPlayer.pause()
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
 
@@ -1234,9 +1268,10 @@ fun ExoVideoPlayer(
                         }
                     }
 
+                    val initialMove = movedPos
                     when {
-                        movedPos != null -> {
-                            runSwipeDragLoop(firstDown.id, firstDown.position, movedPos!!)
+                        initialMove != null -> {
+                            runSwipeDragLoop(firstDown.id, firstDown.position, initialMove)
                         }
                         !liftedEarly -> {
                             runHoldSpeedLoop(firstDown.id, lastPos.x)
@@ -1282,11 +1317,12 @@ fun ExoVideoPlayer(
                                         }
                                     }
                                 }
+                                val secondMove = secondMovedPos
                                 when {
-                                    secondMovedPos != null -> runSwipeDragLoop(
+                                    secondMove != null -> runSwipeDragLoop(
                                         secondDown.id,
                                         secondDown.position,
-                                        secondMovedPos!!
+                                        secondMove
                                     )
                                     !secondLifted -> runHoldSpeedLoop(secondDown.id, secondLastPos.x)
                                     else -> handleDoubleTapAt(secondDown.position)
@@ -2290,6 +2326,9 @@ fun ExoVideoPlayer(
                                                     .clickable {
                                                         if (isPipLocked) {
                                                             triggerPremiumFeatureLock("وضع صورة داخل صورة (PiP)")
+                                                        } else if (!prefsRepo.isPipModeEnabled()) {
+                                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                            bookmarkToastMessage = if (isRtlLayout) "وضع PiP متوقف من إعدادات النظام" else "PiP mode is turned off in System Settings"
                                                         } else {
                                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                             triggerPictureInPicture(context)
@@ -3149,13 +3188,18 @@ fun ExoVideoPlayer(
                         onUnlockedClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             runCatching {
-                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                    type = "video/*"
-                                    putExtra(Intent.EXTRA_STREAM, Uri.parse(mediaItem.uriString))
-                                    putExtra(Intent.EXTRA_SUBJECT, mediaItem.title)
-                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                val shareUri = LocalMediaScanner.resolveShareableUri(context, mediaItem.uriString)
+                                if (shareUri != null) {
+                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "video/*"
+                                        putExtra(Intent.EXTRA_STREAM, shareUri)
+                                        putExtra(Intent.EXTRA_SUBJECT, mediaItem.title)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    context.startActivity(Intent.createChooser(shareIntent, mediaItem.title))
+                                } else {
+                                    bookmarkToastMessage = if (isRtlLayout) "تعذر مشاركة هذا المصدر محلياً" else "This media source cannot be shared"
                                 }
-                                context.startActivity(Intent.createChooser(shareIntent, mediaItem.title))
                             }
                         }
                     )
@@ -3396,9 +3440,9 @@ fun ExoVideoPlayer(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (snapshotBitmap != null) {
+                    snapshotBitmap?.let { bmp ->
                         Image(
-                            bitmap = snapshotBitmap!!.asImageBitmap(),
+                            bitmap = bmp.asImageBitmap(),
                             contentDescription = "Snapshot Preview",
                             modifier = Modifier
                                 .size(36.dp)
@@ -3493,31 +3537,67 @@ fun ExoVideoPlayer(
                     )
                 },
                 text = {
-                    Text(
-                        text = if (lockedPremiumFeatureName.isNotBlank()) {
-                            "ميزة \"$lockedPremiumFeatureName\" تفتح عبر باقة Aura Pulse Premium.\n\nفعّل Aura Pulse Premium الآن لفتح جميع المزايا المغلقة في مشغل الفيديو فوراً (صورة داخل صورة، التشغيل في الخلفية، والمشاركة السريعة)."
-                        } else {
-                            "تفتح باقة Aura Pulse Premium جميع المزايا المغلقة في مشغل الفيديو فوراً."
-                        },
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            color = Color.White,
-                            textAlign = TextAlign.Center,
-                            lineHeight = 20.sp
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = if (lockedPremiumFeatureName.isNotBlank()) {
+                                "ميزة \"$lockedPremiumFeatureName\" تتطلب Aura Pulse Premium.\n\nأدخل رمز التفعيل (Redeem Code) لفتح وضع PiP والتشغيل في الخلفية والمشاركة."
+                            } else {
+                                "أدخل رمز التفعيل الخاص بـ Aura Pulse Premium لفتح المزايا المتقدمة في مشغل الفيديو."
+                            },
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                color = Color.White,
+                                textAlign = TextAlign.Center,
+                                lineHeight = 20.sp
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = playerPremiumCodeInput,
+                            onValueChange = {
+                                playerPremiumCodeInput = it
+                                playerPremiumCodeError = null
+                            },
+                            singleLine = true,
+                            placeholder = { Text("أدخل كود التفعيل...", color = Color(0xFF94A3B8)) },
+                            isError = playerPremiumCodeError != null,
+                            supportingText = {
+                                playerPremiumCodeError?.let { err ->
+                                    Text(err, color = Color(0xFFFF5252))
+                                }
+                            },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color(0xFFFFD700),
+                                unfocusedBorderColor = Color(0x44FFFFFF),
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("player_premium_redeem_input")
+                        )
+                    }
                 },
                 confirmButton = {
                     TextButton(
                         onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            streakViewModel?.setPremiumActivated(true) ?: prefsRepo.setPremiumActivated(true)
-                            showPremiumUnlockDialog = false
+                            if (SecurityUtils.verifyPremiumRedeemCode(playerPremiumCodeInput)) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                streakViewModel?.setPremiumActivated(true) ?: prefsRepo.setPremiumActivated(true)
+                                playerPremiumCodeInput = ""
+                                playerPremiumCodeError = null
+                                showPremiumUnlockDialog = false
+                            } else {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                playerPremiumCodeError = "كود التفعيل غير صحيح"
+                            }
                         },
                         modifier = Modifier.testTag("player_activate_premium_button")
                     ) {
                         Text(
-                            text = "تفعيل Aura Pulse Premium 👑",
+                            text = "تفعيل الكود 👑",
                             color = Color(0xFFFFD700),
                             fontWeight = FontWeight.ExtraBold
                         )

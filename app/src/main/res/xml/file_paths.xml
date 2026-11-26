@@ -1,8 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
     <external-path
-        name="shared_external_media"
-        path="." />
+        name="shared_movies"
+        path="Movies/" />
+    <external-path
+        name="shared_downloads"
+        path="Download/" />
+    <external-path
+        name="shared_dcim"
+        path="DCIM/" />
+    <external-path
+        name="shared_pictures"
+        path="Pictures/" />
+    <external-path
+        name="shared_music"
+        path="Music/" />
+    <files-path
+        name="shared_app_files"
+        path="shared/" />
     <cache-path
         name="shared_cache_media"
         path="shared/" />

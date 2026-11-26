@@ -13,6 +13,7 @@ data class WatchSettingsEntity(
     val hideShortClips: Boolean = false,
     val showNewVideoBadge: Boolean = true,
     val newVideoBadgeDays: Int = 7,
+    val autoFetchOnlineFolderCovers: Boolean = true,
     val updatedAtMs: Long = System.currentTimeMillis()
 )
 

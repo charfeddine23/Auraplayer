@@ -191,6 +191,9 @@ fun WatchSettingsOverlay(
     onSelectSortBy: (WatchSortBy) -> Unit,
     onSelectSortDirection: (WatchSortDirection) -> Unit,
     onToggleHideShortClips: (Boolean) -> Unit,
+    onToggleAutoFetchOnlineFolderCovers: (Boolean) -> Unit = {},
+    onClearAndRefreshFolderCovers: () -> Unit = {},
+    cachedFolderCoversCount: Int = 0,
     onRescanVideos: () -> Unit,
     onImportPhoneFiles: () -> Unit,
     onOpenGalleryPicker: () -> Unit,
@@ -493,6 +496,9 @@ fun WatchSettingsOverlay(
                                 onSelectSortBy = onSelectSortBy,
                                 onSelectSortDirection = onSelectSortDirection,
                                 onToggleHideShortClips = onToggleHideShortClips,
+                                onToggleAutoFetchOnlineFolderCovers = onToggleAutoFetchOnlineFolderCovers,
+                                onClearAndRefreshFolderCovers = onClearAndRefreshFolderCovers,
+                                cachedFolderCoversCount = cachedFolderCoversCount,
                                 onRescanVideos = {
                                     onRescanVideos()
                                     onDismiss()
@@ -640,6 +646,9 @@ private fun WatchSettingsMainContent(
     onSelectSortBy: (WatchSortBy) -> Unit,
     onSelectSortDirection: (WatchSortDirection) -> Unit,
     onToggleHideShortClips: (Boolean) -> Unit,
+    onToggleAutoFetchOnlineFolderCovers: (Boolean) -> Unit = {},
+    onClearAndRefreshFolderCovers: () -> Unit = {},
+    cachedFolderCoversCount: Int = 0,
     onRescanVideos: () -> Unit,
     onImportPhoneFiles: () -> Unit,
     onOpenGalleryPicker: () -> Unit,
@@ -956,6 +965,108 @@ private fun WatchSettingsMainContent(
                                                     )
                                                 }
                                             }
+                                        }
+                                    }
+                                }
+                            }
+
+                            BentoDivider()
+
+                            EditorialSettingToggleRow(
+                                icon = Icons.Default.AutoAwesome,
+                                iconTint = aura.accentCyan,
+                                title = if (isArabic) "جلب أغلفة المجلدات تلقائياً (HD)" else "Auto HD Online Folder Covers",
+                                subtitle = if (watchSettings.autoFetchOnlineFolderCovers) {
+                                    if (isArabic) {
+                                        "فلتر دقة صارم (600×800+ / 600×600+) وحفظ محلي للأوفلاين"
+                                    } else {
+                                        "Strict HD filter (≥600×800 posters / ≥600×600 art) cached locally"
+                                    }
+                                } else {
+                                    if (isArabic) {
+                                        "مُعطّل — استخدام صور الفيديو المحلية فقط"
+                                    } else {
+                                        "Off — local video frames & default folder covers only"
+                                    }
+                                },
+                                checked = watchSettings.autoFetchOnlineFolderCovers,
+                                onCheckedChange = onToggleAutoFetchOnlineFolderCovers
+                            )
+
+                            AnimatedVisibility(visible = watchSettings.autoFetchOnlineFolderCovers || cachedFolderCoversCount > 0) {
+                                Column {
+                                    BentoDivider()
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                onClearAndRefreshFolderCovers()
+                                            }
+                                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                                            .testTag("refresh_clear_folder_covers_button"),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(36.dp)
+                                                    .clip(RoundedCornerShape(11.dp))
+                                                    .background(aura.accentCyan.copy(alpha = 0.14f))
+                                                    .border(0.8.dp, aura.accentCyan.copy(alpha = 0.35f), RoundedCornerShape(11.dp)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Refresh,
+                                                    contentDescription = null,
+                                                    tint = aura.accentCyan,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = if (isArabic) "تحديث وإعادة فحص أغلفة HD" else "Refresh & Clear HD Cover Cache",
+                                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                                        color = aura.textPrimary,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 13.sp
+                                                    )
+                                                )
+                                                Text(
+                                                    text = if (isArabic) {
+                                                        "$cachedFolderCoversCount غلاف HD محفوظ محلياً للأوفلاين"
+                                                    } else {
+                                                        "$cachedFolderCoversCount verified HD covers cached for offline use"
+                                                    },
+                                                    style = MaterialTheme.typography.bodySmall.copy(
+                                                        color = aura.textSecondary,
+                                                        fontSize = 11.sp
+                                                    ),
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = aura.accentCyanSoft,
+                                            border = BorderStroke(0.8.dp, aura.accentCyan.copy(alpha = 0.45f))
+                                        ) {
+                                            Text(
+                                                text = if (isArabic) "تحديث" else "SYNC",
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                    color = aura.accentCyan,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    fontSize = 10.sp
+                                                )
+                                            )
                                         }
                                     }
                                 }

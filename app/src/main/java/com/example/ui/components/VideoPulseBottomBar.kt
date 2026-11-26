@@ -33,13 +33,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.SmartDisplay
 import androidx.compose.material.icons.outlined.Headphones
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Map
 import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material.icons.outlined.SmartDisplay
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -92,7 +92,7 @@ enum class NavDestination(
     HOME("Home", Icons.Filled.Home, Icons.Outlined.Home),
     WATCH("Watch", Icons.Filled.SmartDisplay, Icons.Outlined.SmartDisplay),
     LISTEN("Listen", Icons.Filled.Headphones, Icons.Outlined.Headphones),
-    ROADMAP("Roadmap", Icons.Filled.Map, Icons.Outlined.Map),
+    SHORT("Short", Icons.Filled.PlayCircle, Icons.Outlined.PlayCircle),
     MY_SPACE("My space", Icons.Filled.Person, Icons.Outlined.Person)
 }
 

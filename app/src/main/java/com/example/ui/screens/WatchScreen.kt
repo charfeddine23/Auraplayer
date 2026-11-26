@@ -116,6 +116,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -131,6 +132,8 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.example.data.local.AmbientBlackBlurMode
 import com.example.data.local.WatchSortBy
 import com.example.data.local.WatchSortDirection
@@ -138,6 +141,8 @@ import com.example.data.model.PlayerSeekbarStyle
 import com.example.data.preferences.StreakPreferencesRepository
 import com.example.data.preferences.VideoProgressInfo
 import com.example.data.util.EpisodeParser
+import com.example.data.util.OnlineFolderCoverFetcher
+import java.io.File
 import com.example.ui.components.ContinueWatchingSection
 import com.example.ui.components.DeleteFolderConfirmationDialog
 import com.example.ui.components.DeleteVideoConfirmationDialog
@@ -286,6 +291,7 @@ fun WatchScreen(
     val watchSettings by watchViewModel.watchSettings.collectAsStateWithLifecycle()
     val playerConfig by playerAmbientViewModel.config.collectAsStateWithLifecycle()
     val bookmarkGroups by watchViewModel.bookmarkGroups.collectAsStateWithLifecycle()
+    val cachedFolderCovers by watchViewModel.cachedFolderCovers.collectAsStateWithLifecycle()
 
     var showWatchSettings by remember { mutableStateOf(false) }
     val isPremiumActivatedState by (streakViewModel?.isPremiumActivated?.collectAsStateWithLifecycle()
@@ -542,6 +548,15 @@ fun WatchScreen(
                 .filterNot { pinOrder.contains(prefsRepo.canonicalFolderPinKey(it.name)) }
                 .sortedByDescending { it.count }
             pinned + unpinned
+        }
+    }
+
+    LaunchedEffect(folders, watchSettings.autoFetchOnlineFolderCovers) {
+        if (watchSettings.autoFetchOnlineFolderCovers && folders.isNotEmpty()) {
+            watchViewModel.syncFolderCovers(
+                folderNames = folders.map { it.name },
+                isMusicFolder = false
+            )
         }
     }
 
@@ -1141,9 +1156,15 @@ fun WatchScreen(
                                         Spacer(modifier = Modifier.height(headerTopPaddingDp))
                                     }
                                     items(folders, key = { it.id }, contentType = { "folder_list" }) { folder ->
+                                        val coverPath = if (watchSettings.autoFetchOnlineFolderCovers) {
+                                            cachedFolderCovers[OnlineFolderCoverFetcher.buildFolderCacheKey(folder.name, false)]?.localFilePath
+                                        } else null
+                                        val leadThumb = folder.videos.firstOrNull()?.let { thumbnailBitmaps[it.id] }
                                         FolderItemCard(
                                             folder = folder,
                                             isPinned = isFolderPinned(folder),
+                                            coverFilePath = coverPath,
+                                            leadThumbnailImage = leadThumb,
                                             onClick = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                                 activeFolderId = folder.id
@@ -1190,9 +1211,15 @@ fun WatchScreen(
                                         Spacer(modifier = Modifier.height(headerTopPaddingDp))
                                     }
                                     items(folders, key = { it.id }, contentType = { "folder_grid" }) { folder ->
+                                        val coverPath = if (watchSettings.autoFetchOnlineFolderCovers) {
+                                            cachedFolderCovers[OnlineFolderCoverFetcher.buildFolderCacheKey(folder.name, false)]?.localFilePath
+                                        } else null
+                                        val leadThumb = folder.videos.firstOrNull()?.let { thumbnailBitmaps[it.id] }
                                         FolderGridCard(
                                             folder = folder,
                                             isPinned = isFolderPinned(folder),
+                                            coverFilePath = coverPath,
+                                            leadThumbnailImage = leadThumb,
                                             onClick = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                                 activeFolderId = folder.id
@@ -1237,12 +1264,16 @@ fun WatchScreen(
                                         key = { _, folder -> "mag_folder_${folder.id}" },
                                         contentType = { _, _ -> "folder_magazine" }
                                     ) { index, folder ->
+                                        val coverPath = if (watchSettings.autoFetchOnlineFolderCovers) {
+                                            cachedFolderCovers[OnlineFolderCoverFetcher.buildFolderCacheKey(folder.name, false)]?.localFilePath
+                                        } else null
                                         val leadThumb = folder.videos.firstOrNull()?.let { thumbnailBitmaps[it.id] }
                                         FolderMagazineCard(
                                             folder = folder,
                                             issueNumber = index + 1,
                                             isArabic = isArabic,
                                             isPinned = isFolderPinned(folder),
+                                            coverFilePath = coverPath,
                                             leadThumbnailImage = leadThumb,
                                             onClick = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -1290,11 +1321,15 @@ fun WatchScreen(
                                         Spacer(modifier = Modifier.height(headerTopPaddingDp))
                                     }
                                     items(folders, key = { "gal_folder_${it.id}" }, contentType = { "folder_gallery" }) { folder ->
+                                        val coverPath = if (watchSettings.autoFetchOnlineFolderCovers) {
+                                            cachedFolderCovers[OnlineFolderCoverFetcher.buildFolderCacheKey(folder.name, false)]?.localFilePath
+                                        } else null
                                         val leadThumb = folder.videos.firstOrNull()?.let { thumbnailBitmaps[it.id] }
                                         FolderGalleryTileCard(
                                             folder = folder,
                                             isArabic = isArabic,
                                             isPinned = isFolderPinned(folder),
+                                            coverFilePath = coverPath,
                                             leadThumbnailImage = leadThumb,
                                             onClick = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -2251,6 +2286,16 @@ fun WatchScreen(
             onToggleHideShortClips = { hide ->
                 watchViewModel.setHideShortClips(hide)
             },
+            onToggleAutoFetchOnlineFolderCovers = { enabled ->
+                watchViewModel.setAutoFetchOnlineFolderCovers(enabled)
+            },
+            onClearAndRefreshFolderCovers = {
+                watchViewModel.clearAndRefreshFolderCovers(
+                    folderNames = folders.map { it.name },
+                    isMusicFolder = false
+                )
+            },
+            cachedFolderCoversCount = cachedFolderCovers.size,
             onRescanVideos = {
                 if (hasStoragePermission) {
                     scanVideosJob()
@@ -2621,10 +2666,13 @@ fun WatchScreen(
 fun FolderGridCard(
     folder: VideoFolder,
     isPinned: Boolean = false,
+    coverFilePath: String? = null,
+    leadThumbnailImage: ImageBitmap? = null,
     onClick: () -> Unit,
     onLongPress: () -> Unit = {}
 ) {
     val aura = MaterialTheme.aura
+    val leadVideo = folder.videos.firstOrNull()
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -2643,20 +2691,18 @@ fun FolderGridCard(
         colors = CardDefaults.cardColors(containerColor = aura.surfaceCard)
     ) {
         Column {
-            // Clean Smart Fallback Cover for Folder in Grid
+            // Validated HD online cover -> local high-res video frame -> SmartFallbackCover
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(1.35f)
             ) {
-                SmartFallbackCover(
-                    title = "",
-                    subtitle = null,
-                    icon = Icons.Default.Folder,
-                    aspectRatio = 1.35f,
-                    badgeText = null,
-                    gradientVariant = folder.id.hashCode(),
-                    showText = false
+                FolderCoverArtwork(
+                    folder = folder,
+                    coverFilePath = coverFilePath,
+                    leadVideo = leadVideo,
+                    leadThumbnailImage = leadThumbnailImage,
+                    aspectRatio = 1.35f
                 )
                 if (isPinned) {
                     PinnedBadgePill(
@@ -2723,6 +2769,7 @@ private fun FolderMagazineCard(
     issueNumber: Int,
     isArabic: Boolean,
     isPinned: Boolean = false,
+    coverFilePath: String? = null,
     leadThumbnailImage: ImageBitmap? = null,
     onClick: () -> Unit,
     onLongPress: () -> Unit = {}
@@ -2756,23 +2803,13 @@ private fun FolderMagazineCard(
             )
             .testTag("folder_magazine_card_${folder.id}")
     ) {
-        if (leadVideo != null) {
-            VideoPosterContent(
-                video = leadVideo,
-                aspectRatio = 1.68f,
-                thumbnailImage = leadThumbnailImage
-            )
-        } else {
-            SmartFallbackCover(
-                title = "",
-                subtitle = null,
-                icon = Icons.Default.Folder,
-                aspectRatio = 1.68f,
-                badgeText = null,
-                gradientVariant = folder.id.hashCode(),
-                showText = false
-            )
-        }
+        FolderCoverArtwork(
+            folder = folder,
+            coverFilePath = coverFilePath,
+            leadVideo = leadVideo,
+            leadThumbnailImage = leadThumbnailImage,
+            aspectRatio = 1.68f
+        )
 
         // Luxury editorial dark vignette scrim
         Box(
@@ -2929,6 +2966,7 @@ private fun FolderGalleryTileCard(
     folder: VideoFolder,
     isArabic: Boolean,
     isPinned: Boolean = false,
+    coverFilePath: String? = null,
     leadThumbnailImage: ImageBitmap? = null,
     onClick: () -> Unit,
     onLongPress: () -> Unit = {}
@@ -2948,23 +2986,13 @@ private fun FolderGalleryTileCard(
             )
             .testTag("folder_gallery_tile_${folder.id}")
     ) {
-        if (leadVideo != null) {
-            VideoPosterContent(
-                video = leadVideo,
-                aspectRatio = 0.88f,
-                thumbnailImage = leadThumbnailImage
-            )
-        } else {
-            SmartFallbackCover(
-                title = "",
-                subtitle = null,
-                icon = Icons.Default.Folder,
-                aspectRatio = 0.88f,
-                badgeText = null,
-                gradientVariant = folder.id.hashCode(),
-                showText = false
-            )
-        }
+        FolderCoverArtwork(
+            folder = folder,
+            coverFilePath = coverFilePath,
+            leadVideo = leadVideo,
+            leadThumbnailImage = leadThumbnailImage,
+            aspectRatio = 0.88f
+        )
 
         if (isPinned) {
             PinnedBadgePill(
@@ -3053,15 +3081,70 @@ private fun FolderGalleryTileCard(
     }
 }
 
+@Composable
+private fun FolderCoverArtwork(
+    folder: VideoFolder,
+    coverFilePath: String?,
+    leadVideo: LocalDeviceVideo?,
+    leadThumbnailImage: ImageBitmap?,
+    aspectRatio: Float
+) {
+    val context = LocalContext.current
+    val coverFile = remember(coverFilePath) {
+        coverFilePath?.takeIf { it.isNotBlank() }?.let(::File)?.takeIf { it.exists() }
+    }
+    if (coverFile != null) {
+        val request = remember(coverFile.absolutePath, coverFile.lastModified()) {
+            ImageRequest.Builder(context)
+                .data(coverFile)
+                .crossfade(false)
+                .build()
+        }
+        AsyncImage(
+            model = request,
+            contentDescription = folder.name,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+            alignment = BiasAlignment(0f, -0.25f),
+            filterQuality = FilterQuality.High
+        )
+    } else if (leadVideo != null && leadThumbnailImage != null) {
+        VideoPosterContent(
+            video = leadVideo,
+            aspectRatio = aspectRatio,
+            thumbnailImage = leadThumbnailImage
+        )
+    } else if (leadVideo != null && leadVideo.bitmap != null) {
+        VideoPosterContent(
+            video = leadVideo,
+            aspectRatio = aspectRatio,
+            thumbnailImage = null
+        )
+    } else {
+        SmartFallbackCover(
+            title = "",
+            subtitle = null,
+            icon = Icons.Default.Folder,
+            aspectRatio = aspectRatio,
+            badgeText = null,
+            gradientVariant = folder.id.hashCode(),
+            showText = false
+        )
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun FolderItemCard(
     folder: VideoFolder,
     isPinned: Boolean = false,
+    coverFilePath: String? = null,
+    leadThumbnailImage: ImageBitmap? = null,
     onClick: () -> Unit,
     onLongPress: () -> Unit = {}
 ) {
     val aura = MaterialTheme.aura
+    val leadVideo = folder.videos.firstOrNull()
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -3085,16 +3168,18 @@ fun FolderItemCard(
                 .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Clean Smart Fallback Cover for Folder without filename, size, count or items on thumbnail
-            Box(modifier = Modifier.size(68.dp)) {
-                SmartFallbackCover(
-                    title = "",
-                    subtitle = null,
-                    icon = Icons.Default.Folder,
-                    aspectRatio = 1f,
-                    badgeText = null,
-                    gradientVariant = folder.id.hashCode(),
-                    showText = false
+            // Validated HD online cover -> local high-res video frame -> SmartFallbackCover
+            Box(
+                modifier = Modifier
+                    .size(68.dp)
+                    .clip(RoundedCornerShape(12.dp))
+            ) {
+                FolderCoverArtwork(
+                    folder = folder,
+                    coverFilePath = coverFilePath,
+                    leadVideo = leadVideo,
+                    leadThumbnailImage = leadThumbnailImage,
+                    aspectRatio = 1f
                 )
                 if (isPinned) {
                     PinnedBadgePill(

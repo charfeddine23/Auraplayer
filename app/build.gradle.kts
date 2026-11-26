@@ -16,8 +16,8 @@ android {
     applicationId = "com.aistudio.videopulse.vstrm"
     minSdk = 24
     targetSdk = 36
-    versionCode = 90
-    versionName = "1.1.79"
+    versionCode = 91
+    versionName = "1.1.80"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -43,7 +43,8 @@ android {
   buildTypes {
     release {
       isCrunchPngs = false
-      isMinifyEnabled = false
+      isMinifyEnabled = true
+      isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
       // AI Studio.
@@ -106,6 +107,8 @@ dependencies {
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
   implementation(libs.okhttp)
+  implementation(libs.play.app.update)
+  implementation(libs.play.app.update.ktx)
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)

@@ -4,11 +4,13 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.AppDatabase
+import com.example.data.local.FolderCoverCacheEntity
 import com.example.data.local.VideoBookmarkGroup
 import com.example.data.local.WatchDataRepository
 import com.example.data.local.WatchSettingsConfig
 import com.example.data.local.WatchSortBy
 import com.example.data.local.WatchSortDirection
+import com.example.data.util.OnlineFolderCoverFetcher
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -16,13 +18,14 @@ import kotlinx.coroutines.launch
 
 class WatchViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val repository: WatchDataRepository = run {
-        val db = AppDatabase.getInstance(application)
-        WatchDataRepository(
-            watchSettingsDao = db.watchSettingsDao(),
-            bookmarkDao = db.videoBookmarkDao()
-        )
-    }
+    private val db = AppDatabase.getInstance(application)
+    private val folderCoverCacheDao = db.folderCoverCacheDao()
+
+    private val repository: WatchDataRepository = WatchDataRepository(
+        watchSettingsDao = db.watchSettingsDao(),
+        bookmarkDao = db.videoBookmarkDao(),
+        folderCoverCacheDao = folderCoverCacheDao
+    )
 
     val watchSettings: StateFlow<WatchSettingsConfig> = repository.watchSettingsFlow
         .stateIn(
@@ -37,6 +40,14 @@ class WatchViewModel(application: Application) : AndroidViewModel(application) {
             started = SharingStarted.WhileSubscribed(5_000L),
             initialValue = emptyList()
         )
+
+    val cachedFolderCovers: StateFlow<Map<String, FolderCoverCacheEntity>> =
+        repository.folderCoverCacheFlow
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5_000L),
+                initialValue = emptyMap()
+            )
 
     fun setSortBy(sortBy: WatchSortBy) {
         viewModelScope.launch { repository.setSortBy(sortBy) }
@@ -64,6 +75,58 @@ class WatchViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setNewVideoBadgeDays(days: Int) {
         viewModelScope.launch { repository.setNewVideoBadgeDays(days) }
+    }
+
+    fun setAutoFetchOnlineFolderCovers(enabled: Boolean) {
+        viewModelScope.launch { repository.setAutoFetchOnlineFolderCovers(enabled) }
+    }
+
+    fun syncFolderCovers(
+        folderNames: List<String>,
+        isMusicFolder: Boolean,
+        forceRefresh: Boolean = false
+    ) {
+        if (!forceRefresh && !watchSettings.value.autoFetchOnlineFolderCovers) return
+        val appContext = getApplication<Application>()
+        val uniqueNames = folderNames
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+        uniqueNames.forEach { name ->
+            viewModelScope.launch {
+                OnlineFolderCoverFetcher.resolveAndCacheFolderCover(
+                    context = appContext,
+                    dao = folderCoverCacheDao,
+                    folderName = name,
+                    isMusicFolder = isMusicFolder,
+                    forceRefresh = forceRefresh
+                )
+            }
+        }
+    }
+
+    fun clearAndRefreshFolderCovers(folderNames: List<String>, isMusicFolder: Boolean) {
+        val appContext = getApplication<Application>()
+        viewModelScope.launch {
+            OnlineFolderCoverFetcher.clearAllCachedCovers(appContext, folderCoverCacheDao)
+            if (watchSettings.value.autoFetchOnlineFolderCovers) {
+                folderNames
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                    .forEach { name ->
+                        launch {
+                            OnlineFolderCoverFetcher.resolveAndCacheFolderCover(
+                                context = appContext,
+                                dao = folderCoverCacheDao,
+                                folderName = name,
+                                isMusicFolder = isMusicFolder,
+                                forceRefresh = true
+                            )
+                        }
+                    }
+            }
+        }
     }
 
     fun deleteBookmarkById(id: Long) {

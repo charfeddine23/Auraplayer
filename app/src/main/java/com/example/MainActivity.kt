@@ -96,6 +96,7 @@ import com.example.ui.screens.MilestoneRoadmapScreen
 import com.example.ui.screens.MySpaceScreen
 import com.example.ui.screens.ListenScreen
 import com.example.ui.screens.ShieldFarmingScreen
+import com.example.ui.screens.ShortScreen
 import com.example.ui.screens.StatisticsScreen
 import com.example.ui.screens.SystemSettingsScreen
 import com.example.ui.screens.VaultScreen
@@ -201,6 +202,7 @@ fun VideoPulseApp(
     var isStatisticsOpen by remember { mutableStateOf(false) }
     var isSystemSettingsOpen by remember { mutableStateOf(false) }
     var isVaultOpen by remember { mutableStateOf(false) }
+    var isRoadmapOpen by remember { mutableStateOf(false) }
     var isFlameShieldLabsOpen by remember { mutableStateOf(false) }
     var isKeyWorkshopsOpen by remember { mutableStateOf(false) }
 
@@ -269,7 +271,7 @@ fun VideoPulseApp(
 
     // Apply Full Screen mode (hide/show top phone status bar) without resizing/shrinking window
     // and ensure backgrounds & system bar icons adapt to active Light/Dark theme
-    LaunchedEffect(isFullScreenMode, isAppInForeground, configuration.orientation, aura.isDark, activePlayerMedia) {
+    LaunchedEffect(isFullScreenMode, isAppInForeground, configuration.orientation, aura.isDark, activePlayerMedia, currentDestination, isRoadmapOpen) {
         val window = context.findActivity()?.window ?: return@LaunchedEffect
         WindowCompat.setDecorFitsSystemWindows(window, false)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -291,7 +293,7 @@ fun VideoPulseApp(
         window.navigationBarColor = android.graphics.Color.TRANSPARENT
 
         val controller = WindowCompat.getInsetsController(window, view)
-        val useLightSystemBars = !aura.isDark && activePlayerMedia == null
+        val useLightSystemBars = !aura.isDark && activePlayerMedia == null && (currentDestination != NavDestination.SHORT || isRoadmapOpen)
         controller.isAppearanceLightStatusBars = useLightSystemBars
         controller.isAppearanceLightNavigationBars = useLightSystemBars
         controller.systemBarsBehavior =
@@ -332,13 +334,14 @@ fun VideoPulseApp(
 
     // Android System Back Navigation Handling (always 1 step back across overlays and tab history)
     BackHandler(
-        enabled = showUpdateDialog || activePlayerMedia != null || isFlameShieldLabsOpen || isKeyWorkshopsOpen || isVaultOpen || isSystemSettingsOpen || isStatisticsOpen || isShieldFarmingOpen || isEditingProfile || tabBackStack.size > 1
+        enabled = showUpdateDialog || activePlayerMedia != null || isFlameShieldLabsOpen || isKeyWorkshopsOpen || isRoadmapOpen || isVaultOpen || isSystemSettingsOpen || isStatisticsOpen || isShieldFarmingOpen || isEditingProfile || tabBackStack.size > 1
     ) {
         when {
             showUpdateDialog -> showUpdateDialog = false
             activePlayerMedia != null -> activePlayerMedia = null
             isFlameShieldLabsOpen -> isFlameShieldLabsOpen = false
             isKeyWorkshopsOpen -> isKeyWorkshopsOpen = false
+            isRoadmapOpen -> isRoadmapOpen = false
             isVaultOpen -> isVaultOpen = false
             isSystemSettingsOpen -> isSystemSettingsOpen = false
             isStatisticsOpen -> isStatisticsOpen = false
@@ -434,8 +437,7 @@ fun VideoPulseApp(
                                 HomeScreen(
                                     streakViewModel = streakViewModel,
                                     onNavigateToRoadmap = {
-                                        tabBackStack.remove(NavDestination.ROADMAP)
-                                        tabBackStack.add(NavDestination.ROADMAP)
+                                        isRoadmapOpen = true
                                     },
                                     onNavigateToVault = {
                                         isVaultOpen = true
@@ -483,33 +485,25 @@ fun VideoPulseApp(
                                 )
                             }
 
-                            NavDestination.ROADMAP -> {
-                                MilestoneRoadmapScreen(
+                            NavDestination.SHORT -> {
+                                val isShortActive = currentDestination == NavDestination.SHORT &&
+                                    activePlayerMedia == null &&
+                                    !isRoadmapOpen &&
+                                    !isVaultOpen &&
+                                    !isSystemSettingsOpen &&
+                                    !isStatisticsOpen &&
+                                    !isShieldFarmingOpen &&
+                                    !isEditingProfile &&
+                                    !isFlameShieldLabsOpen &&
+                                    !isKeyWorkshopsOpen
+                                ShortScreen(
+                                    isActiveTab = isShortActive,
                                     streakViewModel = streakViewModel,
-                                    streakDays = streakState.streakDays,
-                                    shieldsCount = streakState.shieldsCount,
-                                    maxShields = streakState.maxShields,
-                                    currentThemeMode = currentThemeMode,
-                                    onThemeModeChange = onThemeModeChange,
-                                    currentStoreTheme = currentStoreTheme,
-                                    onStoreThemeChange = onStoreThemeChange,
-                                    currentLanguage = currentLanguage,
-                                    onLanguageChange = onLanguageChange,
-                                    onBack = {
-                                        if (tabBackStack.size > 1) {
-                                            tabBackStack.removeAt(tabBackStack.lastIndex)
-                                        } else {
-                                            tabBackStack.clear()
-                                            tabBackStack.add(NavDestination.HOME)
-                                        }
-                                    },
-                                    onOpenFlameShieldLabs = {
-                                        isFlameShieldLabsOpen = true
-                                    },
-                                    onOpenKeyWorkshops = {
-                                        isKeyWorkshopsOpen = true
-                                    },
-                                    isArabic = isArabic
+                                    isArabic = isArabic,
+                                    bottomBarPadding = bottomBarHeightDp,
+                                    onShowMessage = { msg ->
+                                        scope.launch { snackbarHostState.showSnackbar(msg) }
+                                    }
                                 )
                             }
 
@@ -522,8 +516,7 @@ fun VideoPulseApp(
                                     currentLanguage = currentLanguage,
                                     onLanguageChange = onLanguageChange,
                                     onOpenRoadmap = {
-                                        tabBackStack.remove(NavDestination.ROADMAP)
-                                        tabBackStack.add(NavDestination.ROADMAP)
+                                        isRoadmapOpen = true
                                     },
                                     onNavigateToEditProfile = {
                                         isEditingProfile = true
@@ -570,9 +563,9 @@ fun VideoPulseApp(
             if (currentDestination != NavDestination.LISTEN && bottomFadeGlassAlpha > 0.01f) {
                 BottomEdgeFadeInGlass(
                     height = bottomFadeHeight,
-                    baseBackgroundColor = aura.background,
-                    frostedSurfaceColor = aura.surfaceElevated,
-                    isDark = aura.isDark,
+                    baseBackgroundColor = if (currentDestination == NavDestination.SHORT) Color.Black else aura.background,
+                    frostedSurfaceColor = if (currentDestination == NavDestination.SHORT) Color(0xFF141418) else aura.surfaceElevated,
+                    isDark = if (currentDestination == NavDestination.SHORT) true else aura.isDark,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .graphicsLayer {
@@ -731,6 +724,36 @@ fun VideoPulseApp(
             VaultScreen(
                 onBack = {
                     isVaultOpen = false
+                },
+                isArabic = isArabic
+            )
+        }
+
+        // Milestone Roadmap Screen Overlay (opened from Home or My Space)
+        AnimatedVisibility(
+            visible = isRoadmapOpen,
+            enter = overlayEnterSpec,
+            exit = overlayExitSpec
+        ) {
+            MilestoneRoadmapScreen(
+                streakViewModel = streakViewModel,
+                streakDays = streakState.streakDays,
+                shieldsCount = streakState.shieldsCount,
+                maxShields = streakState.maxShields,
+                currentThemeMode = currentThemeMode,
+                onThemeModeChange = onThemeModeChange,
+                currentStoreTheme = currentStoreTheme,
+                onStoreThemeChange = onStoreThemeChange,
+                currentLanguage = currentLanguage,
+                onLanguageChange = onLanguageChange,
+                onBack = {
+                    isRoadmapOpen = false
+                },
+                onOpenFlameShieldLabs = {
+                    isFlameShieldLabsOpen = true
+                },
+                onOpenKeyWorkshops = {
+                    isKeyWorkshopsOpen = true
                 },
                 isArabic = isArabic
             )

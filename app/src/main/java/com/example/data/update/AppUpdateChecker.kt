@@ -30,9 +30,9 @@ sealed class UpdateCheckResult {
 }
 
 object AppUpdateChecker {
-    const val REPO_URL = "https://github.com/charfeddine23/Aura"
-    private const val RELEASES_API_URL = "https://api.github.com/repos/charfeddine23/Aura/releases/latest"
-    private const val RELEASES_LIST_API_URL = "https://api.github.com/repos/charfeddine23/Aura/releases?per_page=5"
+    const val REPO_URL = "https://github.com/charfeddine23/Auraplayer"
+    private const val RELEASES_API_URL = "https://api.github.com/repos/charfeddine23/Auraplayer/releases/latest"
+    private const val RELEASES_LIST_API_URL = "https://api.github.com/repos/charfeddine23/Auraplayer/releases?per_page=5"
 
     private val apiClient: OkHttpClient by lazy {
         OkHttpClient.Builder()

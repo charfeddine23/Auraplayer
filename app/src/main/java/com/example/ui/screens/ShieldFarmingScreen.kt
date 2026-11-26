@@ -1,0 +1,419 @@
+package com.example.ui.screens
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import com.example.ui.theme.stableStatusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AccessTime
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.ui.theme.aura
+import com.example.ui.viewmodel.StreakViewModel
+
+@Composable
+fun ShieldFarmingScreen(
+    streakViewModel: StreakViewModel,
+    onBack: () -> Unit,
+    isArabic: Boolean = true,
+    modifier: Modifier = Modifier
+) {
+    val aura = MaterialTheme.aura
+    val haptic = LocalHapticFeedback.current
+    val uiState by streakViewModel.uiState.collectAsState()
+
+    BackHandler {
+        onBack()
+    }
+
+    val farmSecs by streakViewModel.shieldFarmSeconds.collectAsState()
+    val farmMins = (farmSecs / 60).coerceIn(0, 60)
+    val remainingMins = (60 - farmMins).coerceAtLeast(0)
+    val dailyShieldsToday = streakViewModel.getShieldsEarnedToday().coerceAtLeast(0)
+    val isVaultFull = uiState.shieldsCount >= uiState.maxShields
+    val farmProgress = if (isVaultFull) 1f else (farmSecs.toFloat() / 3600f).coerceIn(0f, 1f)
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(aura.background)
+            .testTag("shield_farming_screen")
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .drawBehind {
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            listOf(
+                                aura.accentCyan.copy(alpha = 0.14f),
+                                aura.accentFlame.copy(alpha = 0.08f),
+                                Color.Transparent
+                            ),
+                            radius = size.width * 0.95f
+                        ),
+                        center = Offset(size.width * 0.5f, size.height * 0.16f)
+                    )
+                }
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .stableStatusBarsPadding()
+                .windowInsetsPadding(WindowInsets.navigationBars)
+        ) {
+            // Top Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onBack()
+                        },
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(aura.iconButtonBg)
+                            .testTag("shield_farming_back_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = if (isArabic) "رجوع" else "Back",
+                            tint = aura.textPrimary
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Column {
+                        Text(
+                            text = if (isArabic) "زراعة الدروع" else "Shield Farming",
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                color = aura.textPrimary
+                            )
+                        )
+                        Text(
+                            text = if (isArabic) "اكسب الدروع لصهر المفاتيح وصناعة The Flame Shield" else "Earn Shields to craft keys & The Flame Shield",
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                color = aura.textSecondary,
+                                fontSize = 11.sp
+                            )
+                        )
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = aura.accentCyanSoft,
+                    border = BorderStroke(1.dp, aura.accentCyan.copy(alpha = 0.6f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Shield, null, tint = aura.accentCyan, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(
+                            text = "${uiState.shieldsCount}/${uiState.maxShields}",
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                color = aura.textPrimary,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                        )
+                    }
+                }
+            }
+
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 20.dp),
+                contentPadding = PaddingValues(top = 8.dp, bottom = 36.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // Hero Live Progress Card
+                item(key = "shield_farm_hero") {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(
+                                1.2.dp,
+                                Brush.horizontalGradient(listOf(aura.accentCyan.copy(alpha = 0.7f), aura.accentGold.copy(alpha = 0.55f))),
+                                RoundedCornerShape(24.dp)
+                            ),
+                        shape = RoundedCornerShape(24.dp),
+                        colors = CardDefaults.cardColors(containerColor = aura.surfaceCard)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(72.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        Brush.radialGradient(
+                                            listOf(aura.accentCyan.copy(alpha = 0.25f), aura.accentCyan.copy(alpha = 0.08f))
+                                        )
+                                    )
+                                    .border(1.5.dp, aura.accentCyan.copy(alpha = 0.8f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Shield,
+                                    contentDescription = null,
+                                    tint = if (isVaultFull) aura.accentEmerald else aura.accentCyan,
+                                    modifier = Modifier.size(36.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            Text(
+                                text = if (isVaultFull) {
+                                    if (isArabic) "تم امتلاء خزينة الدروع (${uiState.shieldsCount}/${uiState.maxShields}) ✓" else "Shield Vault Full (${uiState.shieldsCount}/${uiState.maxShields}) ✓"
+                                } else {
+                                    if (isArabic) "$farmMins / 60 دقيقة لـ +10 دروع قادمة" else "$farmMins / 60 mins to next +10 shields"
+                                },
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    color = aura.textPrimary,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            )
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            Text(
+                                text = if (isVaultFull) {
+                                    if (isArabic) "وصلت للحد الأقصى لتخزين الدروع (${uiState.maxShields})" else "Vault storage capacity reached (${uiState.maxShields})"
+                                } else {
+                                    if (isArabic) "متبقي $remainingMins دقيقة للحصول على +10 دروع • زراعة غير محدودة ∞" else "$remainingMins mins left for +10 shields • Unlimited daily farming ∞"
+                                },
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = aura.textSecondary,
+                                    fontSize = 12.sp
+                                )
+                            )
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            LinearProgressIndicator(
+                                progress = { farmProgress },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(10.dp)
+                                    .clip(RoundedCornerShape(5.dp)),
+                                color = if (isVaultFull) aura.accentEmerald else aura.accentCyan,
+                                trackColor = aura.progressTrack
+                            )
+                        }
+                    }
+                }
+
+                // Daily 3-Shield Quota Card
+                item(key = "shield_farm_daily_slots") {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, aura.borderSubtle, RoundedCornerShape(22.dp)),
+                        shape = RoundedCornerShape(22.dp),
+                        colors = CardDefaults.cardColors(containerColor = aura.surfaceElevated)
+                    ) {
+                        Column(modifier = Modifier.padding(18.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (isArabic) "حصيلة اليوم (زراعة غير محدودة ∞)" else "Today's Shield Farming (Unlimited ∞)",
+                                    style = MaterialTheme.typography.titleSmall.copy(
+                                        color = aura.textPrimary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                )
+                                Text(
+                                    text = "$dailyShieldsToday ♾️",
+                                    style = MaterialTheme.typography.labelLarge.copy(
+                                        color = aura.accentEmerald,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            val shieldsPerHour = com.example.data.preferences.StreakPreferencesRepository.SHIELDS_PER_FARM_HOUR
+                            val hoursEarnedToday = dailyShieldsToday / shieldsPerHour
+                            val baseSlot = (hoursEarnedToday / 3) * 3
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                (1..3).forEach { offset ->
+                                    val slot = baseSlot + offset
+                                    val earned = hoursEarnedToday >= slot
+                                    Surface(
+                                        modifier = Modifier.weight(1f),
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = if (earned) aura.accentEmeraldSoft else aura.surfaceSubtle,
+                                        border = BorderStroke(
+                                            1.dp,
+                                            if (earned) aura.accentEmerald else aura.borderSubtle
+                                        )
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(vertical = 14.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Icon(
+                                                imageVector = if (earned) Icons.Default.CheckCircle else Icons.Default.Shield,
+                                                contentDescription = null,
+                                                tint = if (earned) aura.accentEmerald else aura.textTertiary,
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text(
+                                                text = if (isArabic) "+10 دروع" else "+10 Shields",
+                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                    color = if (earned) aura.textPrimary else aura.textSecondary,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            )
+                                            Text(
+                                                text = if (earned) (if (isArabic) "ساعة $slot ✓" else "Hour $slot ✓") else "${slot}h",
+                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                    color = if (earned) aura.accentEmerald else aura.textTertiary,
+                                                    fontSize = 10.sp
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Rules Card
+                item(key = "shield_farm_rules") {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, aura.accentCyan.copy(alpha = 0.25f), RoundedCornerShape(20.dp)),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(containerColor = aura.surfaceCard)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(18.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Info, null, tint = aura.accentCyan, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (isArabic) "قواعد زراعة الدروع" else "Shield Farming Rules",
+                                    style = MaterialTheme.typography.titleSmall.copy(
+                                        color = aura.textPrimary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                )
+                            }
+
+                            RuleLine(
+                                icon = Icons.Default.AccessTime,
+                                text = if (isArabic) "تُمنح 10 دروع مقابل كل ساعة كاملة (60 دقيقة) لاستخدامها في The Forge و The Shop." else "Earn 10 Shields for every full hour (60 min) to spend in The Forge & The Shop.",
+                                tint = aura.accentCyan
+                            )
+                            RuleLine(
+                                icon = Icons.Default.Shield,
+                                text = if (isArabic) "مزرعة الدروع غير محدودة يومياً (بدون سقف يومي)، وبسعة خزينة تصل إلى ${uiState.maxShields} درع." else "Unlimited daily shield farming (no daily cap), up to ${uiState.maxShields} shields total inventory.",
+                                tint = aura.accentGold
+                            )
+                            RuleLine(
+                                icon = Icons.Default.Info,
+                                text = if (isArabic) "الاستخدام في الخلفية لا يُحتسب ضمن عداد زراعة الدروع." else "Background usage does NOT count toward shield farming.",
+                                tint = aura.textSecondary
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RuleLine(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    text: String,
+    tint: Color
+) {
+    val aura = MaterialTheme.aura
+    Row(verticalAlignment = Alignment.Top) {
+        Icon(icon, null, tint = tint, modifier = Modifier.size(16.dp).padding(top = 2.dp))
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodySmall.copy(
+                color = aura.textSecondary,
+                fontSize = 12.sp,
+                lineHeight = 17.sp
+            )
+        )
+    }
+}

@@ -181,6 +181,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem as ExoMediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
@@ -600,10 +602,16 @@ fun ExoVideoPlayer(
 
     // Initialize ExoPlayer
     val exoPlayer = remember {
-        ExoPlayer.Builder(context).build().apply {
-            playWhenReady = true
-            repeatMode = Player.REPEAT_MODE_ALL
-        }
+        val videoAudioAttributes = AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+            .build()
+        ExoPlayer.Builder(context)
+            .setAudioAttributes(videoAudioAttributes, /* handleAudioFocus = */ true)
+            .build().apply {
+                playWhenReady = true
+                repeatMode = Player.REPEAT_MODE_ALL
+            }
     }
 
     fun togglePlayPauseWithFeedback(fromDoubleTap: Boolean = false) {

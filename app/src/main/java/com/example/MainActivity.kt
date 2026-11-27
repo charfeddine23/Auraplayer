@@ -3,6 +3,7 @@ package com.example
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.Intent
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
@@ -113,8 +114,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    private var openListenPlayerNonce by mutableIntStateOf(0)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (intent?.getBooleanExtra(com.example.media.MusicPlaybackService.EXTRA_OPEN_LISTEN_PLAYER, false) == true) {
+            openListenPlayerNonce++
+        }
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
@@ -161,10 +167,19 @@ class MainActivity : ComponentActivity() {
                             currentLanguage = it
                             prefsRepo.saveLanguage(it)
                         },
+                        openListenPlayerTrigger = openListenPlayerNonce,
                         streakViewModel = streakViewModel
                     )
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(com.example.media.MusicPlaybackService.EXTRA_OPEN_LISTEN_PLAYER, false)) {
+            openListenPlayerNonce++
         }
     }
 }
@@ -177,6 +192,7 @@ fun VideoPulseApp(
     onStoreThemeChange: (StoreTheme) -> Unit,
     currentLanguage: AppLanguage,
     onLanguageChange: (AppLanguage) -> Unit,
+    openListenPlayerTrigger: Int = 0,
     streakViewModel: StreakViewModel = viewModel()
 ) {
     val scope = rememberCoroutineScope()
@@ -191,6 +207,14 @@ fun VideoPulseApp(
     val tabBackStack = remember { mutableStateListOf(NavDestination.HOME) }
     val currentDestination = tabBackStack.lastOrNull() ?: NavDestination.HOME
     var activePlayerMedia by remember { mutableStateOf<MediaItem?>(null) }
+
+    LaunchedEffect(openListenPlayerTrigger) {
+        if (openListenPlayerTrigger > 0) {
+            activePlayerMedia = null
+            tabBackStack.remove(NavDestination.LISTEN)
+            tabBackStack.add(NavDestination.LISTEN)
+        }
+    }
     var lastPlayerMedia by remember { mutableStateOf<MediaItem?>(null) }
     LaunchedEffect(activePlayerMedia) {
         if (activePlayerMedia != null) {
@@ -488,7 +512,8 @@ fun VideoPulseApp(
                                     },
                                     onFullPlayerVisibilityChange = { isOpen ->
                                         isListenFullPlayerOpen = isOpen
-                                    }
+                                    },
+                                    openFullPlayerTrigger = openListenPlayerTrigger
                                 )
                             }
 

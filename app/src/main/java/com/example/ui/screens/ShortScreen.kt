@@ -129,6 +129,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem as ExoMediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
@@ -354,9 +356,15 @@ fun ShortScreen(
 
     // Single shared ExoPlayer for the Short Reels feed (prevents codec exhaustion during fast swiping)
     val exoPlayer = remember {
-        ExoPlayer.Builder(context).build().apply {
-            repeatMode = Player.REPEAT_MODE_ONE
-        }
+        val videoAudioAttributes = AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+            .build()
+        ExoPlayer.Builder(context)
+            .setAudioAttributes(videoAudioAttributes, /* handleAudioFocus = */ true)
+            .build().apply {
+                repeatMode = Player.REPEAT_MODE_ONE
+            }
     }
     var isMuted by remember { mutableStateOf(false) }
     var isUserPaused by remember { mutableStateOf(false) }

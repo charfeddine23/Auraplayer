@@ -7,12 +7,14 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -596,6 +598,146 @@ private fun VideoActionRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+        }
+    }
+}
+
+data class WatchInlineActionItem(
+    val icon: ImageVector,
+    val label: String,
+    val accent: Color,
+    val testTag: String,
+    val isDestructive: Boolean = false,
+    val isHighlighted: Boolean = false,
+    val onClick: () -> Unit
+)
+
+@Composable
+fun WatchInlineSelectionActionBar(
+    isArabic: Boolean,
+    actions: List<WatchInlineActionItem>,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val aura = MaterialTheme.aura
+    val haptic = LocalHapticFeedback.current
+    val scrollState = rememberScrollState()
+
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = aura.surfaceCard,
+        border = BorderStroke(1.dp, aura.accentCyan.copy(alpha = 0.55f)),
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("watch_inline_selection_action_bar")
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(scrollState)
+                .padding(horizontal = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onClose()
+                    }
+                    .testTag("watch_inline_action_close"),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = aura.surfaceSubtle,
+                    border = BorderStroke(0.8.dp, aura.borderSubtle),
+                    modifier = Modifier.size(34.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = if (isArabic) "إلغاء التحديد" else "Clear selection",
+                            tint = aura.textSecondary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+
+            actions.forEach { action ->
+                WatchInlineActionButton(action = action)
+            }
+        }
+    }
+}
+
+@Composable
+private fun WatchInlineActionButton(
+    action: WatchInlineActionItem
+) {
+    val aura = MaterialTheme.aura
+    val haptic = LocalHapticFeedback.current
+    val containerColor = when {
+        action.isDestructive -> Color(0x26FF5C77)
+        action.isHighlighted -> action.accent.copy(alpha = 0.20f)
+        else -> aura.surfaceSubtle
+    }
+    val borderColor = when {
+        action.isDestructive -> Color(0x66FF5C77)
+        action.isHighlighted -> action.accent.copy(alpha = 0.65f)
+        else -> action.accent.copy(alpha = 0.30f)
+    }
+    val textColor = when {
+        action.isDestructive -> Color(0xFFFF6E86)
+        action.isHighlighted -> action.accent
+        else -> aura.textPrimary
+    }
+
+    Box(
+        modifier = Modifier
+            .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .clickable {
+                haptic.performHapticFeedback(
+                    if (action.isDestructive) HapticFeedbackType.LongPress
+                    else HapticFeedbackType.TextHandleMove
+                )
+                action.onClick()
+            }
+            .testTag(action.testTag),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            shape = RoundedCornerShape(10.dp),
+            color = containerColor,
+            border = BorderStroke(0.9.dp, borderColor)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                Icon(
+                    imageVector = action.icon,
+                    contentDescription = action.label,
+                    tint = action.accent,
+                    modifier = Modifier.size(15.dp)
+                )
+                Text(
+                    text = action.label,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        color = textColor,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp
+                    )
+                )
+            }
         }
     }
 }

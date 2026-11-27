@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Aura Pulse</string>
+    <string name="music_notification_channel_name">Music Playback</string>
 </resources>

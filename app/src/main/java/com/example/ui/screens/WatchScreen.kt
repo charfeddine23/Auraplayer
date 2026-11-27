@@ -77,15 +77,21 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoStories
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.DriveFileMove
+import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.ViewAgenda
 import androidx.compose.material3.Button
@@ -147,7 +153,6 @@ import com.example.ui.components.ContinueWatchingSection
 import com.example.ui.components.DeleteFolderConfirmationDialog
 import com.example.ui.components.DeleteVideoConfirmationDialog
 import com.example.ui.components.FolderInfoDialog
-import com.example.ui.components.FolderLongPressActionSheet
 import com.example.ui.components.LuxuryEpisodeThumbnailBadge
 import com.example.ui.components.MoveVideoFolderDialog
 import com.example.ui.components.PinnedBadgePill
@@ -155,7 +160,8 @@ import com.example.ui.components.RenameFolderDialog
 import com.example.ui.components.RenameVideoDialog
 import com.example.ui.components.SmoothMarqueeTitleText
 import com.example.ui.components.VideoInfoDialog
-import com.example.ui.components.VideoLongPressActionSheet
+import com.example.ui.components.WatchInlineActionItem
+import com.example.ui.components.WatchInlineSelectionActionBar
 import com.example.ui.components.WatchSettingsOverlay
 import com.example.ui.components.formatCleanTitle
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -361,9 +367,24 @@ fun WatchScreen(
         }
     }
 
-    // Guarantee system Back steps back 1 level inside Watch (Search -> Folder -> previous tab)
-    BackHandler(enabled = !showWatchSettings && (searchQuery.isNotEmpty() || activeFolderId != null)) {
+    var contextMenuVideo by remember { mutableStateOf<LocalDeviceVideo?>(null) }
+    var contextMenuFolder by remember { mutableStateOf<VideoFolder?>(null) }
+    val hasInlineSelection = contextMenuVideo != null || contextMenuFolder != null
+
+    LaunchedEffect(selectedCategory, activeFolderId, showWatchSettings) {
+        contextMenuVideo = null
+        contextMenuFolder = null
+    }
+
+    // Guarantee system Back steps back 1 level inside Watch (Selection -> Search -> Folder -> previous tab)
+    BackHandler(
+        enabled = !showWatchSettings && (hasInlineSelection || searchQuery.isNotEmpty() || activeFolderId != null)
+    ) {
         when {
+            hasInlineSelection -> {
+                contextMenuVideo = null
+                contextMenuFolder = null
+            }
             searchQuery.isNotEmpty() -> searchQuery = ""
             activeFolderId != null -> activeFolderId = null
         }
@@ -656,12 +677,10 @@ fun WatchScreen(
             video.isNewWithinDays(newBadgeDays, nowMs)
     }
 
-    var contextMenuVideo by remember { mutableStateOf<LocalDeviceVideo?>(null) }
     var videoToRename by remember { mutableStateOf<LocalDeviceVideo?>(null) }
     var videoToMove by remember { mutableStateOf<LocalDeviceVideo?>(null) }
     var videoToDelete by remember { mutableStateOf<LocalDeviceVideo?>(null) }
     var videoDetailsPair by remember { mutableStateOf<Pair<LocalDeviceVideo, LocalMediaScanner.VideoDetailsInfo>?>(null) }
-    var contextMenuFolder by remember { mutableStateOf<VideoFolder?>(null) }
     var folderToRename by remember { mutableStateOf<VideoFolder?>(null) }
     var folderToDelete by remember { mutableStateOf<VideoFolder?>(null) }
     var folderDetailsPair by remember { mutableStateOf<Pair<VideoFolder, LocalMediaScanner.FolderDetailsInfo>?>(null) }
@@ -1163,15 +1182,19 @@ fun WatchScreen(
                                         FolderItemCard(
                                             folder = folder,
                                             isPinned = isFolderPinned(folder),
+                                            isSelected = contextMenuFolder?.id == folder.id,
                                             coverFilePath = coverPath,
                                             leadThumbnailImage = leadThumb,
                                             onClick = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                contextMenuVideo = null
+                                                contextMenuFolder = null
                                                 activeFolderId = folder.id
                                             },
                                             onLongPress = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                contextMenuFolder = folder
+                                                contextMenuVideo = null
+                                                contextMenuFolder = if (contextMenuFolder?.id == folder.id) null else folder
                                             }
                                         )
                                     }
@@ -1218,15 +1241,19 @@ fun WatchScreen(
                                         FolderGridCard(
                                             folder = folder,
                                             isPinned = isFolderPinned(folder),
+                                            isSelected = contextMenuFolder?.id == folder.id,
                                             coverFilePath = coverPath,
                                             leadThumbnailImage = leadThumb,
                                             onClick = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                contextMenuVideo = null
+                                                contextMenuFolder = null
                                                 activeFolderId = folder.id
                                             },
                                             onLongPress = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                contextMenuFolder = folder
+                                                contextMenuVideo = null
+                                                contextMenuFolder = if (contextMenuFolder?.id == folder.id) null else folder
                                             }
                                         )
                                     }
@@ -1273,15 +1300,19 @@ fun WatchScreen(
                                             issueNumber = index + 1,
                                             isArabic = isArabic,
                                             isPinned = isFolderPinned(folder),
+                                            isSelected = contextMenuFolder?.id == folder.id,
                                             coverFilePath = coverPath,
                                             leadThumbnailImage = leadThumb,
                                             onClick = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                contextMenuVideo = null
+                                                contextMenuFolder = null
                                                 activeFolderId = folder.id
                                             },
                                             onLongPress = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                contextMenuFolder = folder
+                                                contextMenuVideo = null
+                                                contextMenuFolder = if (contextMenuFolder?.id == folder.id) null else folder
                                             }
                                         )
                                     }
@@ -1329,15 +1360,19 @@ fun WatchScreen(
                                             folder = folder,
                                             isArabic = isArabic,
                                             isPinned = isFolderPinned(folder),
+                                            isSelected = contextMenuFolder?.id == folder.id,
                                             coverFilePath = coverPath,
                                             leadThumbnailImage = leadThumb,
                                             onClick = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                contextMenuVideo = null
+                                                contextMenuFolder = null
                                                 activeFolderId = folder.id
                                             },
                                             onLongPress = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                contextMenuFolder = folder
+                                                contextMenuVideo = null
+                                                contextMenuFolder = if (contextMenuFolder?.id == folder.id) null else folder
                                             }
                                         )
                                     }
@@ -1381,13 +1416,17 @@ fun WatchScreen(
                                             hideFileExtensions = hideFileExtensions,
                                             isNewVideo = isVideoNew(video),
                                             isPinned = isVideoPinned(video),
+                                            isSelected = contextMenuVideo?.id == video.id,
                                             onPlay = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                contextMenuVideo = null
+                                                contextMenuFolder = null
                                                 openVideoForPlayback(video.toMediaItem())
                                             },
                                             onLongPress = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                contextMenuVideo = video
+                                                contextMenuFolder = null
+                                                contextMenuVideo = if (contextMenuVideo?.id == video.id) null else video
                                             }
                                         )
                                     }
@@ -1435,13 +1474,17 @@ fun WatchScreen(
                                             hideFileExtensions = hideFileExtensions,
                                             isNewVideo = isVideoNew(video),
                                             isPinned = isVideoPinned(video),
+                                            isSelected = contextMenuVideo?.id == video.id,
                                             onPlay = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                contextMenuVideo = null
+                                                contextMenuFolder = null
                                                 openVideoForPlayback(video.toMediaItem())
                                             },
                                             onLongPress = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                contextMenuVideo = video
+                                                contextMenuFolder = null
+                                                contextMenuVideo = if (contextMenuVideo?.id == video.id) null else video
                                             }
                                         )
                                     }
@@ -1498,13 +1541,17 @@ fun WatchScreen(
                                                     hideFileExtensions = hideFileExtensions,
                                                     isNewVideo = isVideoNew(row.video),
                                                     isPinned = isVideoPinned(row.video),
+                                                    isSelected = contextMenuVideo?.id == row.video.id,
                                                     onPlay = {
                                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                        contextMenuVideo = null
+                                                        contextMenuFolder = null
                                                         openVideoForPlayback(row.video.toMediaItem())
                                                     },
                                                     onLongPress = {
                                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                        contextMenuVideo = row.video
+                                                        contextMenuFolder = null
+                                                        contextMenuVideo = if (contextMenuVideo?.id == row.video.id) null else row.video
                                                     }
                                                 )
                                             }
@@ -1526,13 +1573,17 @@ fun WatchScreen(
                                                             hideFileExtensions = hideFileExtensions,
                                                             isNewVideo = isVideoNew(row.left),
                                                             isPinned = isVideoPinned(row.left),
+                                                            isSelected = contextMenuVideo?.id == row.left.id,
                                                             onPlay = {
                                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                                contextMenuVideo = null
+                                                                contextMenuFolder = null
                                                                 openVideoForPlayback(row.left.toMediaItem())
                                                             },
                                                             onLongPress = {
                                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                                contextMenuVideo = row.left
+                                                                contextMenuFolder = null
+                                                                contextMenuVideo = if (contextMenuVideo?.id == row.left.id) null else row.left
                                                             }
                                                         )
                                                     }
@@ -1549,13 +1600,17 @@ fun WatchScreen(
                                                                 hideFileExtensions = hideFileExtensions,
                                                                 isNewVideo = isVideoNew(row.right),
                                                                 isPinned = isVideoPinned(row.right),
+                                                                isSelected = contextMenuVideo?.id == row.right.id,
                                                                 onPlay = {
                                                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                                    contextMenuVideo = null
+                                                                    contextMenuFolder = null
                                                                     openVideoForPlayback(row.right.toMediaItem())
                                                                 },
                                                                 onLongPress = {
                                                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                                    contextMenuVideo = row.right
+                                                                    contextMenuFolder = null
+                                                                    contextMenuVideo = if (contextMenuVideo?.id == row.right.id) null else row.right
                                                                 }
                                                             )
                                                         }
@@ -1577,13 +1632,17 @@ fun WatchScreen(
                                                     hideFileExtensions = hideFileExtensions,
                                                     isNewVideo = isVideoNew(row.video),
                                                     isPinned = isVideoPinned(row.video),
+                                                    isSelected = contextMenuVideo?.id == row.video.id,
                                                     onPlay = {
                                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                        contextMenuVideo = null
+                                                        contextMenuFolder = null
                                                         openVideoForPlayback(row.video.toMediaItem())
                                                     },
                                                     onLongPress = {
                                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                        contextMenuVideo = row.video
+                                                        contextMenuFolder = null
+                                                        contextMenuVideo = if (contextMenuVideo?.id == row.video.id) null else row.video
                                                     }
                                                 )
                                             }
@@ -1636,13 +1695,17 @@ fun WatchScreen(
                                                     savedProgress = savedProg,
                                                     isNewVideo = isVideoNew(video),
                                                     isPinned = isVideoPinned(video),
+                                                    isSelected = contextMenuVideo?.id == video.id,
                                                     onPlay = {
                                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                        contextMenuVideo = null
+                                                        contextMenuFolder = null
                                                         openVideoForPlayback(video.toMediaItem())
                                                     },
                                                     onLongPress = {
                                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                        contextMenuVideo = video
+                                                        contextMenuFolder = null
+                                                        contextMenuVideo = if (contextMenuVideo?.id == video.id) null else video
                                                     },
                                                     modifier = Modifier
                                                         .weight(tileWeight)
@@ -1767,7 +1830,12 @@ fun WatchScreen(
                 )
             }
 
-            // 2. Overlaid Collapsible Top Header (Stays hidden during downward scroll until top videos are reached)
+            // 2. Overlaid Collapsible Top Header (Stays hidden during downward scroll until top videos are reached, or uncollapses while long-press actions are active)
+            val selectionHeaderReveal by animateFloatAsState(
+                targetValue = if (hasInlineSelection) 1f else 0f,
+                animationSpec = tween(220, easing = CubicBezierEasing(0.22f, 1f, 0.36f, 1f)),
+                label = "watch_selection_header_reveal"
+            )
             Column(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -1781,13 +1849,14 @@ fun WatchScreen(
                     .graphicsLayer {
                         val maxH = headerFullHeightPx
                         val tracker = activeScrollTracker
-                        val collapsePx = if (maxH <= 1f || tracker == null) {
+                        val rawCollapsePx = if (maxH <= 1f || tracker == null) {
                             0f
                         } else if (tracker.firstVisibleItemIndex == 0) {
                             tracker.firstVisibleItemScrollOffset.toFloat().coerceIn(0f, maxH)
                         } else {
                             maxH
                         }
+                        val collapsePx = rawCollapsePx * (1f - selectionHeaderReveal)
                         translationY = if (collapsePx >= maxH - 0.5f && maxH > 1f) {
                             -maxH - 8f
                         } else {
@@ -2176,45 +2245,268 @@ fun WatchScreen(
                 }
             }
 
-            // Compact / Slim Search Bar
-            AnimatedVisibility(visible = watchSettings.showSearchBar) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 4.dp)
-                ) {
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(46.dp),
-                        placeholder = {
-                            Text(
-                                text = if (isArabic) "بحث..." else "Search videos...",
-                                color = aura.textTertiary,
-                                fontSize = 11.sp
-                            )
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.Search,
-                                contentDescription = null,
-                                tint = aura.accentCyan,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        },
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = aura.accentCyan,
-                            unfocusedBorderColor = aura.borderSubtle,
-                            focusedContainerColor = aura.surfaceCard,
-                            unfocusedContainerColor = aura.surfaceSubtle,
-                            focusedTextColor = aura.textPrimary,
-                            unfocusedTextColor = aura.textPrimary
-                        )
-                    )
+            // Compact / Slim Search Bar OR Inline Side-by-Side Long-Press Action Buttons
+            val inlineSlotState = when {
+                contextMenuVideo != null -> 1
+                contextMenuFolder != null -> 2
+                else -> 0
+            }
+            AnimatedVisibility(visible = hasInlineSelection || watchSettings.showSearchBar) {
+                AnimatedContent(
+                    targetState = inlineSlotState,
+                    transitionSpec = {
+                        (fadeIn(tween(180, easing = FastOutSlowInEasing)) +
+                            scaleIn(initialScale = 0.97f, animationSpec = tween(180, easing = FastOutSlowInEasing))) togetherWith
+                            (fadeOut(tween(120)) + scaleOut(targetScale = 0.97f, animationSpec = tween(120)))
+                    },
+                    label = "watch_search_slot_inline_actions"
+                ) { slotState ->
+                    when (slotState) {
+                        1 -> {
+                            val selectedVideo = contextMenuVideo
+                            if (selectedVideo != null) {
+                                val videoPinned = isVideoPinned(selectedVideo)
+                                val videoActions = listOf(
+                                    WatchInlineActionItem(
+                                        icon = Icons.Default.DeleteOutline,
+                                        label = if (isArabic) "حذف" else "Delete",
+                                        accent = Color(0xFFFF5C77),
+                                        testTag = "video_action_delete",
+                                        isDestructive = true,
+                                        onClick = {
+                                            contextMenuVideo = null
+                                            videoToDelete = selectedVideo
+                                        }
+                                    ),
+                                    WatchInlineActionItem(
+                                        icon = Icons.Default.DriveFileRenameOutline,
+                                        label = if (isArabic) "تسمية" else "Rename",
+                                        accent = aura.accentCyan,
+                                        testTag = "video_action_rename",
+                                        onClick = {
+                                            contextMenuVideo = null
+                                            videoToRename = selectedVideo
+                                        }
+                                    ),
+                                    WatchInlineActionItem(
+                                        icon = Icons.Default.DriveFileMove,
+                                        label = if (isArabic) "نقل" else "Move",
+                                        accent = aura.accentGold,
+                                        testTag = "video_action_move",
+                                        onClick = {
+                                            contextMenuVideo = null
+                                            videoToMove = selectedVideo
+                                        }
+                                    ),
+                                    WatchInlineActionItem(
+                                        icon = Icons.Default.Share,
+                                        label = if (isArabic) "مشاركة" else "Share",
+                                        accent = aura.accentViolet,
+                                        testTag = "video_action_share",
+                                        onClick = {
+                                            contextMenuVideo = null
+                                            val shared = LocalMediaScanner.shareVideo(context, selectedVideo)
+                                            if (!shared) {
+                                                mediaOpFeedback = if (isArabic) "تعذر مشاركة هذا الفيديو." else "Unable to share this video."
+                                            }
+                                        }
+                                    ),
+                                    WatchInlineActionItem(
+                                        icon = Icons.Default.PushPin,
+                                        label = if (videoPinned) {
+                                            if (isArabic) "إلغاء التثبيت" else "Unpin"
+                                        } else {
+                                            if (isArabic) "تثبيت" else "Pin"
+                                        },
+                                        accent = aura.accentGold,
+                                        testTag = "video_action_pin_to_top",
+                                        isHighlighted = videoPinned,
+                                        onClick = {
+                                            contextMenuVideo = null
+                                            pinnedVideoKeys = prefsRepo.togglePinnedVideo(selectedVideo.id, selectedVideo.uriString)
+                                            mediaOpFeedback = if (videoPinned) {
+                                                if (isArabic) "تم إلغاء تثبيت الفيديو" else "Video unpinned"
+                                            } else {
+                                                if (isArabic) "تم تثبيت الفيديو في الأعلى" else "Pinned video to top"
+                                            }
+                                        }
+                                    ),
+                                    WatchInlineActionItem(
+                                        icon = Icons.Default.Info,
+                                        label = if (isArabic) "معلومات" else "Info",
+                                        accent = aura.textPrimary,
+                                        testTag = "video_action_info",
+                                        onClick = {
+                                            contextMenuVideo = null
+                                            scope.launch {
+                                                val details = withContext(Dispatchers.IO) {
+                                                    LocalMediaScanner.resolveVideoDetails(context, selectedVideo)
+                                                }
+                                                videoDetailsPair = selectedVideo to details
+                                            }
+                                        }
+                                    ),
+                                    WatchInlineActionItem(
+                                        icon = Icons.Default.PlayArrow,
+                                        label = if (isArabic) "تشغيل" else "Play",
+                                        accent = aura.accentCyan,
+                                        testTag = "sheet_play_video_button",
+                                        onClick = {
+                                            contextMenuVideo = null
+                                            openVideoForPlayback(selectedVideo.toMediaItem())
+                                        }
+                                    )
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 20.dp, vertical = 4.dp)
+                                ) {
+                                    WatchInlineSelectionActionBar(
+                                        isArabic = isArabic,
+                                        actions = videoActions,
+                                        onClose = { contextMenuVideo = null }
+                                    )
+                                }
+                            }
+                        }
+
+                        2 -> {
+                            val selectedFolder = contextMenuFolder
+                            if (selectedFolder != null) {
+                                val folderPinned = isFolderPinned(selectedFolder)
+                                val folderActions = listOf(
+                                    WatchInlineActionItem(
+                                        icon = Icons.Default.DeleteOutline,
+                                        label = if (isArabic) "حذف" else "Delete",
+                                        accent = Color(0xFFFF5C77),
+                                        testTag = "folder_action_delete",
+                                        isDestructive = true,
+                                        onClick = {
+                                            contextMenuFolder = null
+                                            folderToDelete = selectedFolder
+                                        }
+                                    ),
+                                    WatchInlineActionItem(
+                                        icon = Icons.Default.DriveFileRenameOutline,
+                                        label = if (isArabic) "تسمية" else "Rename",
+                                        accent = aura.accentCyan,
+                                        testTag = "folder_action_rename",
+                                        onClick = {
+                                            contextMenuFolder = null
+                                            folderToRename = selectedFolder
+                                        }
+                                    ),
+                                    WatchInlineActionItem(
+                                        icon = Icons.Default.Share,
+                                        label = if (isArabic) "مشاركة" else "Share",
+                                        accent = aura.accentViolet,
+                                        testTag = "folder_action_share",
+                                        onClick = {
+                                            contextMenuFolder = null
+                                            val shared = LocalMediaScanner.shareFolderVideos(context, selectedFolder.name, selectedFolder.videos)
+                                            if (!shared) {
+                                                mediaOpFeedback = if (isArabic) "تعذر مشاركة هذا المجلد." else "Unable to share this folder."
+                                            }
+                                        }
+                                    ),
+                                    WatchInlineActionItem(
+                                        icon = Icons.Default.PushPin,
+                                        label = if (folderPinned) {
+                                            if (isArabic) "إلغاء التثبيت" else "Unpin"
+                                        } else {
+                                            if (isArabic) "تثبيت" else "Pin"
+                                        },
+                                        accent = aura.accentGold,
+                                        testTag = "folder_action_pin_to_top",
+                                        isHighlighted = folderPinned,
+                                        onClick = {
+                                            contextMenuFolder = null
+                                            pinnedFolderNames = prefsRepo.togglePinnedFolder(selectedFolder.name)
+                                            mediaOpFeedback = if (folderPinned) {
+                                                if (isArabic) "تم إلغاء تثبيت المجلد" else "Folder unpinned"
+                                            } else {
+                                                if (isArabic) "تم تثبيت المجلد في الأعلى" else "Pinned folder to top"
+                                            }
+                                        }
+                                    ),
+                                    WatchInlineActionItem(
+                                        icon = Icons.Default.Info,
+                                        label = if (isArabic) "معلومات" else "Info",
+                                        accent = aura.textPrimary,
+                                        testTag = "folder_action_info",
+                                        onClick = {
+                                            contextMenuFolder = null
+                                            val details = LocalMediaScanner.resolveFolderDetails(selectedFolder.name, selectedFolder.videos)
+                                            folderDetailsPair = selectedFolder to details
+                                        }
+                                    ),
+                                    WatchInlineActionItem(
+                                        icon = Icons.Default.FolderOpen,
+                                        label = if (isArabic) "فتح" else "Open",
+                                        accent = aura.accentCyan,
+                                        testTag = "sheet_open_folder_button",
+                                        onClick = {
+                                            contextMenuFolder = null
+                                            activeFolderId = selectedFolder.id
+                                        }
+                                    )
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 20.dp, vertical = 4.dp)
+                                ) {
+                                    WatchInlineSelectionActionBar(
+                                        isArabic = isArabic,
+                                        actions = folderActions,
+                                        onClose = { contextMenuFolder = null }
+                                    )
+                                }
+                            }
+                        }
+
+                        else -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 24.dp, vertical = 4.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = searchQuery,
+                                    onValueChange = { searchQuery = it },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(46.dp),
+                                    placeholder = {
+                                        Text(
+                                            text = if (isArabic) "بحث..." else "Search videos...",
+                                            color = aura.textTertiary,
+                                            fontSize = 11.sp
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.Search,
+                                            contentDescription = null,
+                                            tint = aura.accentCyan,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = aura.accentCyan,
+                                        unfocusedBorderColor = aura.borderSubtle,
+                                        focusedContainerColor = aura.surfaceCard,
+                                        unfocusedContainerColor = aura.surfaceSubtle,
+                                        focusedTextColor = aura.textPrimary,
+                                        unfocusedTextColor = aura.textPrimary
+                                    )
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -2420,108 +2712,6 @@ fun WatchScreen(
             }
         )
 
-        // Video Long-Press Context Sheet
-        contextMenuVideo?.let { selectedVideo ->
-            val videoPinned = isVideoPinned(selectedVideo)
-            VideoLongPressActionSheet(
-                video = selectedVideo,
-                isArabic = isArabic,
-                hideFileExtensions = hideFileExtensions,
-                isPinned = videoPinned,
-                onTogglePin = {
-                    contextMenuVideo = null
-                    pinnedVideoKeys = prefsRepo.togglePinnedVideo(selectedVideo.id, selectedVideo.uriString)
-                    mediaOpFeedback = if (videoPinned) {
-                        if (isArabic) "تم إلغاء تثبيت الفيديو" else "Video unpinned"
-                    } else {
-                        if (isArabic) "تم تثبيت الفيديو في الأعلى" else "Pinned video to top"
-                    }
-                },
-                onPlay = {
-                    contextMenuVideo = null
-                    openVideoForPlayback(selectedVideo.toMediaItem())
-                },
-                onRename = {
-                    contextMenuVideo = null
-                    videoToRename = selectedVideo
-                },
-                onMove = {
-                    contextMenuVideo = null
-                    videoToMove = selectedVideo
-                },
-                onShare = {
-                    contextMenuVideo = null
-                    val shared = LocalMediaScanner.shareVideo(context, selectedVideo)
-                    if (!shared) {
-                        mediaOpFeedback = if (isArabic) "تعذر مشاركة هذا الفيديو." else "Unable to share this video."
-                    }
-                },
-                onInfo = {
-                    contextMenuVideo = null
-                    scope.launch {
-                        val details = withContext(Dispatchers.IO) {
-                            LocalMediaScanner.resolveVideoDetails(context, selectedVideo)
-                        }
-                        videoDetailsPair = selectedVideo to details
-                    }
-                },
-                onDelete = {
-                    contextMenuVideo = null
-                    videoToDelete = selectedVideo
-                },
-                onDismiss = { contextMenuVideo = null }
-            )
-        }
-
-        // Folder Long-Press Context Sheet
-        contextMenuFolder?.let { selectedFolder ->
-            val folderPinned = isFolderPinned(selectedFolder)
-            val leadVideo = selectedFolder.videos.firstOrNull()
-            FolderLongPressActionSheet(
-                folderName = selectedFolder.name,
-                videoCount = selectedFolder.count,
-                totalSizeText = selectedFolder.totalSize,
-                leadVideo = leadVideo,
-                leadThumbnail = leadVideo?.let { thumbnailBitmaps[it.id] },
-                isArabic = isArabic,
-                isPinned = folderPinned,
-                onOpen = {
-                    contextMenuFolder = null
-                    activeFolderId = selectedFolder.id
-                },
-                onTogglePin = {
-                    contextMenuFolder = null
-                    pinnedFolderNames = prefsRepo.togglePinnedFolder(selectedFolder.name)
-                    mediaOpFeedback = if (folderPinned) {
-                        if (isArabic) "تم إلغاء تثبيت المجلد" else "Folder unpinned"
-                    } else {
-                        if (isArabic) "تم تثبيت المجلد في الأعلى" else "Pinned folder to top"
-                    }
-                },
-                onRename = {
-                    contextMenuFolder = null
-                    folderToRename = selectedFolder
-                },
-                onShare = {
-                    contextMenuFolder = null
-                    val shared = LocalMediaScanner.shareFolderVideos(context, selectedFolder.name, selectedFolder.videos)
-                    if (!shared) {
-                        mediaOpFeedback = if (isArabic) "تعذر مشاركة هذا المجلد." else "Unable to share this folder."
-                    }
-                },
-                onInfo = {
-                    contextMenuFolder = null
-                    val details = LocalMediaScanner.resolveFolderDetails(selectedFolder.name, selectedFolder.videos)
-                    folderDetailsPair = selectedFolder to details
-                },
-                onDelete = {
-                    contextMenuFolder = null
-                    folderToDelete = selectedFolder
-                },
-                onDismiss = { contextMenuFolder = null }
-            )
-        }
-
         // Rename Video Dialog
         videoToRename?.let { target ->
             RenameVideoDialog(
@@ -2666,6 +2856,7 @@ fun WatchScreen(
 fun FolderGridCard(
     folder: VideoFolder,
     isPinned: Boolean = false,
+    isSelected: Boolean = false,
     coverFilePath: String? = null,
     leadThumbnailImage: ImageBitmap? = null,
     onClick: () -> Unit,
@@ -2678,9 +2869,13 @@ fun FolderGridCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
             .border(
-                1.dp,
-                if (isPinned) aura.accentGold.copy(alpha = 0.65f) else aura.borderSubtle,
-                RoundedCornerShape(18.dp)
+                width = if (isSelected) 2.dp else 1.dp,
+                color = when {
+                    isSelected -> aura.accentCyan
+                    isPinned -> aura.accentGold.copy(alpha = 0.65f)
+                    else -> aura.borderSubtle
+                },
+                shape = RoundedCornerShape(18.dp)
             )
             .combinedClickable(
                 onClick = onClick,
@@ -2769,6 +2964,7 @@ private fun FolderMagazineCard(
     issueNumber: Int,
     isArabic: Boolean,
     isPinned: Boolean = false,
+    isSelected: Boolean = false,
     coverFilePath: String? = null,
     leadThumbnailImage: ImageBitmap? = null,
     onClick: () -> Unit,
@@ -2786,14 +2982,18 @@ private fun FolderMagazineCard(
             .background(aura.surfaceCard)
             .border(
                 BorderStroke(
-                    1.1.dp,
-                    Brush.linearGradient(
-                        listOf(
-                            aura.accentGold.copy(alpha = 0.65f),
-                            aura.accentCyan.copy(alpha = 0.55f),
-                            aura.accentViolet.copy(alpha = 0.45f)
+                    if (isSelected) 2.2.dp else 1.1.dp,
+                    if (isSelected) {
+                        Brush.linearGradient(listOf(aura.accentCyan, aura.accentCyan))
+                    } else {
+                        Brush.linearGradient(
+                            listOf(
+                                aura.accentGold.copy(alpha = 0.65f),
+                                aura.accentCyan.copy(alpha = 0.55f),
+                                aura.accentViolet.copy(alpha = 0.45f)
+                            )
                         )
-                    )
+                    }
                 ),
                 RoundedCornerShape(22.dp)
             )
@@ -2966,6 +3166,7 @@ private fun FolderGalleryTileCard(
     folder: VideoFolder,
     isArabic: Boolean,
     isPinned: Boolean = false,
+    isSelected: Boolean = false,
     coverFilePath: String? = null,
     leadThumbnailImage: ImageBitmap? = null,
     onClick: () -> Unit,
@@ -2980,6 +3181,13 @@ private fun FolderGalleryTileCard(
             .aspectRatio(0.88f)
             .clip(RoundedCornerShape(6.dp))
             .background(aura.surfaceCard)
+            .then(
+                if (isSelected) {
+                    Modifier.border(2.dp, aura.accentCyan, RoundedCornerShape(6.dp))
+                } else {
+                    Modifier
+                }
+            )
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongPress
@@ -3138,6 +3346,7 @@ private fun FolderCoverArtwork(
 fun FolderItemCard(
     folder: VideoFolder,
     isPinned: Boolean = false,
+    isSelected: Boolean = false,
     coverFilePath: String? = null,
     leadThumbnailImage: ImageBitmap? = null,
     onClick: () -> Unit,
@@ -3150,9 +3359,13 @@ fun FolderItemCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
             .border(
-                1.dp,
-                if (isPinned) aura.accentGold.copy(alpha = 0.65f) else aura.borderSubtle,
-                RoundedCornerShape(18.dp)
+                width = if (isSelected) 2.dp else 1.dp,
+                color = when {
+                    isSelected -> aura.accentCyan
+                    isPinned -> aura.accentGold.copy(alpha = 0.65f)
+                    else -> aura.borderSubtle
+                },
+                shape = RoundedCornerShape(18.dp)
             )
             .combinedClickable(
                 onClick = onClick,
@@ -3295,6 +3508,7 @@ fun FileListItemCard(
     hideFileExtensions: Boolean = false,
     isNewVideo: Boolean = false,
     isPinned: Boolean = false,
+    isSelected: Boolean = false,
     onLongPress: () -> Unit = {}
 ) {
     val aura = MaterialTheme.aura
@@ -3310,9 +3524,13 @@ fun FileListItemCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .border(
-                1.dp,
-                if (isPinned) aura.accentGold.copy(alpha = 0.65f) else aura.borderSubtle,
-                RoundedCornerShape(16.dp)
+                width = if (isSelected) 2.dp else 1.dp,
+                color = when {
+                    isSelected -> aura.accentCyan
+                    isPinned -> aura.accentGold.copy(alpha = 0.65f)
+                    else -> aura.borderSubtle
+                },
+                shape = RoundedCornerShape(16.dp)
             )
             .combinedClickable(
                 onClick = onPlay,
@@ -3492,6 +3710,7 @@ fun MagazineGridItemCard(
     hideFileExtensions: Boolean = false,
     isNewVideo: Boolean = false,
     isPinned: Boolean = false,
+    isSelected: Boolean = false,
     onLongPress: () -> Unit = {}
 ) {
     val aura = MaterialTheme.aura
@@ -3507,9 +3726,13 @@ fun MagazineGridItemCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .border(
-                1.dp,
-                if (isPinned) aura.accentGold.copy(alpha = 0.65f) else aura.borderSubtle,
-                RoundedCornerShape(16.dp)
+                width = if (isSelected) 2.dp else 1.dp,
+                color = when {
+                    isSelected -> aura.accentCyan
+                    isPinned -> aura.accentGold.copy(alpha = 0.65f)
+                    else -> aura.borderSubtle
+                },
+                shape = RoundedCornerShape(16.dp)
             )
             .combinedClickable(
                 onClick = onPlay,
@@ -3807,6 +4030,7 @@ private fun MagazineEditorialHeroCard(
     hideFileExtensions: Boolean = false,
     isNewVideo: Boolean = false,
     isPinned: Boolean = false,
+    isSelected: Boolean = false,
     onPlay: () -> Unit,
     onLongPress: () -> Unit = {}
 ) {
@@ -3825,14 +4049,18 @@ private fun MagazineEditorialHeroCard(
             .background(aura.surfaceCard)
             .border(
                 BorderStroke(
-                    1.2.dp,
-                    Brush.linearGradient(
-                        listOf(
-                            aura.accentGold.copy(alpha = 0.7f),
-                            aura.accentCyan.copy(alpha = 0.55f),
-                            aura.accentViolet.copy(alpha = 0.45f)
+                    if (isSelected) 2.2.dp else 1.2.dp,
+                    if (isSelected) {
+                        Brush.linearGradient(listOf(aura.accentCyan, aura.accentCyan))
+                    } else {
+                        Brush.linearGradient(
+                            listOf(
+                                aura.accentGold.copy(alpha = 0.7f),
+                                aura.accentCyan.copy(alpha = 0.55f),
+                                aura.accentViolet.copy(alpha = 0.45f)
+                            )
                         )
-                    )
+                    }
                 ),
                 RoundedCornerShape(24.dp)
             )
@@ -4043,6 +4271,7 @@ private fun MagazinePortraitCoverCard(
     hideFileExtensions: Boolean = false,
     isNewVideo: Boolean = false,
     isPinned: Boolean = false,
+    isSelected: Boolean = false,
     onPlay: () -> Unit,
     onLongPress: () -> Unit = {}
 ) {
@@ -4059,9 +4288,13 @@ private fun MagazinePortraitCoverCard(
             .clip(RoundedCornerShape(20.dp))
             .background(aura.surfaceCard)
             .border(
-                1.dp,
-                if (isPinned) aura.accentGold.copy(alpha = 0.65f) else aura.borderSubtle,
-                RoundedCornerShape(20.dp)
+                width = if (isSelected) 2.dp else 1.dp,
+                color = when {
+                    isSelected -> aura.accentCyan
+                    isPinned -> aura.accentGold.copy(alpha = 0.65f)
+                    else -> aura.borderSubtle
+                },
+                shape = RoundedCornerShape(20.dp)
             )
             .combinedClickable(
                 onClick = onPlay,
@@ -4215,6 +4448,7 @@ private fun MagazineSpotlightCard(
     hideFileExtensions: Boolean = false,
     isNewVideo: Boolean = false,
     isPinned: Boolean = false,
+    isSelected: Boolean = false,
     onPlay: () -> Unit,
     onLongPress: () -> Unit = {}
 ) {
@@ -4228,13 +4462,17 @@ private fun MagazineSpotlightCard(
         shape = RoundedCornerShape(20.dp),
         color = aura.surfaceCard,
         border = BorderStroke(
-            1.dp,
-            Brush.horizontalGradient(
-                listOf(
-                    if (isPinned) aura.accentGold.copy(alpha = 0.72f) else aura.accentViolet.copy(alpha = 0.55f),
-                    aura.borderSubtle
+            if (isSelected) 2.dp else 1.dp,
+            if (isSelected) {
+                Brush.horizontalGradient(listOf(aura.accentCyan, aura.accentCyan))
+            } else {
+                Brush.horizontalGradient(
+                    listOf(
+                        if (isPinned) aura.accentGold.copy(alpha = 0.72f) else aura.accentViolet.copy(alpha = 0.55f),
+                        aura.borderSubtle
+                    )
                 )
-            )
+            }
         ),
         modifier = Modifier
             .fillMaxWidth()
@@ -4411,6 +4649,7 @@ private fun GalleryMosaicTileCard(
     savedProgress: VideoProgressInfo? = null,
     isNewVideo: Boolean = false,
     isPinned: Boolean = false,
+    isSelected: Boolean = false,
     onPlay: () -> Unit,
     onLongPress: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -4423,6 +4662,13 @@ private fun GalleryMosaicTileCard(
     Box(
         modifier = modifier
             .background(aura.surfaceCard)
+            .then(
+                if (isSelected) {
+                    Modifier.border(2.dp, aura.accentCyan)
+                } else {
+                    Modifier
+                }
+            )
             .combinedClickable(
                 onClick = onPlay,
                 onLongClick = onLongPress

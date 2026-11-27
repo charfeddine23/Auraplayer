@@ -1,6 +1,8 @@
 package com.example.ui.screens
 
+import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -46,11 +48,13 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.R
 import com.example.data.model.LocalDeviceVideo
 import com.example.data.model.MediaItem
+import com.example.data.preferences.StreakPreferencesRepository
 import com.example.data.util.LocalMediaScanner
 import com.example.ui.components.AccountRankAndRedeemDialog
 import com.example.ui.components.LocalFloatingBottomBarPadding
 import com.example.ui.components.MemberStreakRank
 import com.example.ui.components.MySpaceHistorySheet
+import com.example.ui.components.MySpaceLikedVideosSheet
 import com.example.ui.components.MySpaceOfflineMediaSheet
 import com.example.ui.components.MySpaceWatchlistSheet
 import com.example.ui.components.allCatalogMediaItems
@@ -109,17 +113,22 @@ fun MySpaceScreen(
     val currentRank = remember(streakDays) { MemberStreakRank.forStreak(streakDays) }
     val earnedTitle = remember(xpState.unlockedLevel) { resolveEarnedTitle(xpState.unlockedLevel) }
 
+    val prefsRepo = remember(context) { StreakPreferencesRepository.getInstance(context) }
+
     var showAccountRankDialog by remember { mutableStateOf(false) }
     var showAccountsHubSheet by remember { mutableStateOf(false) }
     var showWatchlistSheet by remember { mutableStateOf(false) }
+    var showLikedVideosSheet by remember { mutableStateOf(false) }
     var showHistorySheet by remember { mutableStateOf(false) }
     var showOfflineSheet by remember { mutableStateOf(false) }
     var showPlaylistsSheet by remember { mutableStateOf(false) }
     var statusBanner by remember { mutableStateOf<String?>(null) }
 
     val localVideos = remember { mutableStateListOf<LocalDeviceVideo>() }
+    var likedVideoKeys by remember { mutableStateOf(prefsRepo.getShortLikedVideoKeys()) }
 
     LaunchedEffect(Unit) {
+        likedVideoKeys = prefsRepo.getShortLikedVideoKeys()
         if (LocalMediaScanner.hasStorageOrVideoPermission(context)) {
             val scanned = withContext(Dispatchers.IO) {
                 LocalMediaScanner.scanDeviceVideos(context)
@@ -162,6 +171,12 @@ fun MySpaceScreen(
         val localAsMedia = localVideos.map { it.asHomeMediaItem() }
         val pool = allCatalog + localAsMedia
         pool.filter { it.id in savedMediaIds }.distinctBy { it.id }
+    }
+    val likedLocalVideos = remember(likedVideoKeys, localVideos.toList()) {
+        localVideos.filter { video ->
+            val key = prefsRepo.canonicalVideoKey(video.id, video.uriString)
+            likedVideoKeys.contains(key) || likedVideoKeys.contains(video.id)
+        }
     }
 
     val displayName = userName.trim().ifBlank {
@@ -209,10 +224,30 @@ fun MySpaceScreen(
                     },
                     onCastClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        statusBanner = if (isArabic) {
-                            "جاري البحث عن أجهزة البث المتاحة..."
-                        } else {
-                            "Scanning for nearby Cast devices..."
+                        val castActions = listOf(
+                            Settings.ACTION_CAST_SETTINGS,
+                            "android.settings.WIFI_DISPLAY_SETTINGS",
+                            Settings.ACTION_BLUETOOTH_SETTINGS
+                        )
+                        val opened = castActions.any { action ->
+                            val intent = Intent(action).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            runCatching {
+                                if (intent.resolveActivity(context.packageManager) != null) {
+                                    context.startActivity(intent)
+                                    true
+                                } else {
+                                    false
+                                }
+                            }.getOrDefault(false)
+                        }
+                        if (!opened) {
+                            statusBanner = if (isArabic) {
+                                "إعدادات البث اللاسلكي غير متاحة على هذا الجهاز"
+                            } else {
+                                "Wireless Cast settings unavailable on this device"
+                            }
                         }
                     }
                 )
@@ -255,7 +290,8 @@ fun MySpaceScreen(
                     },
                     onLikedVideosClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        showWatchlistSheet = true
+                        likedVideoKeys = prefsRepo.getShortLikedVideoKeys()
+                        showLikedVideosSheet = true
                     },
                     onPlaylistsClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -263,7 +299,7 @@ fun MySpaceScreen(
                     },
                     onMyVideosClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        showOfflineSheet = true
+                        onNavigateToWatch()
                     }
                 )
             }
@@ -389,6 +425,21 @@ fun MySpaceScreen(
                     )
                 },
                 onDismiss = { showWatchlistSheet = false }
+            )
+        }
+
+        if (showLikedVideosSheet) {
+            MySpaceLikedVideosSheet(
+                likedVideos = likedLocalVideos,
+                isArabic = isArabic,
+                onPlayLocalVideo = { video ->
+                    onPlayMedia(video.asHomeMediaItem())
+                },
+                onUnlikeVideo = { video ->
+                    val updated = prefsRepo.setShortLiked(video.id, video.uriString, liked = false)
+                    likedVideoKeys = updated
+                },
+                onDismiss = { showLikedVideosSheet = false }
             )
         }
 

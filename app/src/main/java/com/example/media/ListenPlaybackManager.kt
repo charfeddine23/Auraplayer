@@ -552,6 +552,67 @@ class ListenPlaybackManager private constructor(private val appContext: Context)
         }
     }
 
+    fun queueTrackNext(track: LocalAudioTrack, isArabic: Boolean = false) {
+        val list = _playlist.value
+        if (list.isEmpty()) return
+        val currentIdx = _currentTrackIndex.value.coerceIn(0, list.lastIndex)
+        val currentTrack = list[currentIdx]
+
+        // If triggered on the currently playing track from Now Playing options, advance immediately to the next track
+        if (track.id == currentTrack.id) {
+            skipNext(isArabic)
+            val nextIdx = if (list.size > 1) (currentIdx + 1) % list.size else currentIdx
+            val nextTitle = _playlist.value.getOrNull(nextIdx)?.title ?: track.title
+            showMessage(
+                if (isArabic) "جاري تشغيل التالي: $nextTitle" else "Playing next: $nextTitle"
+            )
+            return
+        }
+
+        // Otherwise move or insert the chosen track directly after the current track in the queue
+        val targetInsertIdx = (currentIdx + 1).coerceAtMost(list.size)
+        val existingIdx = list.indexOfFirst { it.id == track.id }
+        val mutable = list.toMutableList()
+        var adjustedCurrentIdx = currentIdx
+        val finalInsertIdx: Int
+        if (existingIdx >= 0) {
+            if (existingIdx == targetInsertIdx) {
+                showMessage(if (isArabic) "التالي: ${track.title}" else "Up next: ${track.title}")
+                return
+            }
+            val removed = mutable.removeAt(existingIdx)
+            if (existingIdx < currentIdx) {
+                adjustedCurrentIdx = (currentIdx - 1).coerceAtLeast(0)
+            }
+            finalInsertIdx = (adjustedCurrentIdx + 1).coerceAtMost(mutable.size)
+            mutable.add(finalInsertIdx, removed)
+        } else {
+            finalInsertIdx = targetInsertIdx
+            mutable.add(finalInsertIdx, track)
+        }
+        _playlist.value = mutable
+        _currentTrackIndex.value = adjustedCurrentIdx
+
+        val controller = mediaController
+        if (controller != null && controller.isConnected && controller.mediaItemCount > 0) {
+            if (existingIdx >= 0 && existingIdx < controller.mediaItemCount) {
+                controller.moveMediaItem(existingIdx, finalInsertIdx.coerceAtMost(controller.mediaItemCount - 1))
+            } else {
+                scope.launch {
+                    val uri = withContext(Dispatchers.IO) { resolvePlayableTrackUri(track) }
+                    val art = withContext(Dispatchers.IO) { resolveTrackArtworkBytes(track) }
+                    val item = buildMediaItem(track, uri, art)
+                    val safePos = (controller.currentMediaItemIndex + 1).coerceIn(0, controller.mediaItemCount)
+                    controller.addMediaItem(safePos, item)
+                }
+            }
+        }
+
+        showMessage(
+            if (isArabic) "تمت جدولة التالي: ${track.title}" else "Queued next: ${track.title}"
+        )
+    }
+
     fun setDraggingSlider(dragging: Boolean, dragPosMs: Float? = null) {
         isDraggingSlider = dragging
         if (dragPosMs != null) {
@@ -610,8 +671,8 @@ class ListenPlaybackManager private constructor(private val appContext: Context)
         )
     }
 
-    fun updateAudioEffects(eqBands: List<Float>, bassBoostPercent: Int) {
-        MusicPlaybackService.updateAudioEffects(eqBands, bassBoostPercent)
+    fun updateAudioEffects(eqBands: List<Float>, bassBoostPercent: Int, spatialEnabled: Boolean = true) {
+        MusicPlaybackService.updateAudioEffects(eqBands, bassBoostPercent, spatialEnabled)
     }
 
     fun toggleFavorite(trackId: String, isArabic: Boolean) {

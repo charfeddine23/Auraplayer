@@ -2,14 +2,19 @@ package com.example.ui.components
 
 import android.app.Activity
 import android.app.PictureInPictureParams
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.media.AudioManager
+import android.media.MediaScannerConnection
+import android.media.audiofx.LoudnessEnhancer
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import android.util.Rational
 import android.view.LayoutInflater
 import android.view.TextureView
@@ -188,6 +193,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
+import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -203,9 +209,14 @@ import com.example.ui.theme.Charcoal950
 import com.example.ui.viewmodel.PlayerAmbientViewModel
 import com.example.ui.viewmodel.StreakViewModel
 import com.example.ui.viewmodel.WatchXpNotice
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan2
@@ -500,6 +511,7 @@ fun ExoVideoPlayer(
     // Offline Features: Snapshot, Room Bookmarks, Auto-Crop, Boost & Subtitle Sync
     var snapshotBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var showSnapshotToast by remember { mutableStateOf(false) }
+    var snapshotToastMessage by remember { mutableStateOf("تم حفظ اللقطة في المعرض 📷") }
     val videoBookmarksFlow = remember(mediaItem.id, mediaItem.uriString) {
         playerAmbientViewModel.observeBookmarksForVideo(mediaItem.id, mediaItem.uriString)
     }
@@ -508,13 +520,18 @@ fun ExoVideoPlayer(
     var bookmarkToastMessage by remember { mutableStateOf<String?>(null) }
     var isAutoCropBlackBars by remember { mutableStateOf(persistentConfig.isAutoCropBlackBars) }
     var audioBoostMultiplier by remember { mutableFloatStateOf(persistentConfig.audioBoostMultiplier) }
-    var subtitleDelayOffsetMs by remember { mutableLongStateOf(persistentConfig.subtitleDelayOffsetMs) }
+    var subtitleDelayOffsetMs by remember { mutableLongStateOf(persistentConfig.subtitleDelayOffsetMs.coerceIn(0L, 5000L)) }
     var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
 
     LaunchedEffect(showSnapshotToast) {
         if (showSnapshotToast) {
             delay(3200)
             showSnapshotToast = false
+            val stale = snapshotBitmap
+            snapshotBitmap = null
+            if (stale != null && !stale.isRecycled) {
+                stale.recycle()
+            }
         }
     }
 
@@ -527,33 +544,60 @@ fun ExoVideoPlayer(
 
     fun takeFrameSnapshot() {
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-        try {
+        val capturedFullBitmap: Bitmap? = runCatching {
             val surface = playerViewRef?.videoSurfaceView
-            if (surface is TextureView) {
-                val bmp = surface.bitmap
-                if (bmp != null) {
-                    snapshotBitmap = bmp
-                    showSnapshotToast = true
-                    return
+            if (surface is TextureView && surface.isAvailable) {
+                surface.bitmap
+            } else {
+                val pv = playerViewRef
+                if (pv != null && pv.width > 0 && pv.height > 0) {
+                    Bitmap.createBitmap(pv.width, pv.height, Bitmap.Config.ARGB_8888).also { bmp ->
+                        val canvas = android.graphics.Canvas(bmp)
+                        pv.draw(canvas)
+                    }
+                } else {
+                    null
                 }
             }
-        } catch (_: Throwable) {}
+        }.getOrNull()
 
-        try {
-            val pv = playerViewRef
-            if (pv != null) {
-                val v = pv as android.view.View
-                val w = v.width
-                val h = v.height
-                if (w > 0 && h > 0) {
-                    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                    val c = android.graphics.Canvas(bmp)
-                    v.draw(c)
-                    snapshotBitmap = bmp
-                    showSnapshotToast = true
+        if (capturedFullBitmap == null || capturedFullBitmap.isRecycled) {
+            snapshotToastMessage = if (isRtlLayout) "تعذر التقاط إطار الفيديو حالياً" else "Unable to capture video frame"
+            showSnapshotToast = true
+            return
+        }
+
+        scope.launch {
+            val previewBmp = withContext(Dispatchers.Default) {
+                runCatching {
+                    val maxDim = 160f
+                    val scale = (maxDim / maxOf(capturedFullBitmap.width, capturedFullBitmap.height).coerceAtLeast(1)).coerceAtMost(1f)
+                    val targetW = (capturedFullBitmap.width * scale).toInt().coerceAtLeast(1)
+                    val targetH = (capturedFullBitmap.height * scale).toInt().coerceAtLeast(1)
+                    Bitmap.createScaledBitmap(capturedFullBitmap, targetW, targetH, true)
+                }.getOrNull()
+            }
+
+            val savedToGallery = withContext(Dispatchers.IO) {
+                try {
+                    saveSnapshotBitmapToGallery(context, capturedFullBitmap)
+                } finally {
+                    if (capturedFullBitmap !== previewBmp && !capturedFullBitmap.isRecycled) {
+                        capturedFullBitmap.recycle()
+                    }
                 }
             }
-        } catch (_: Throwable) {
+
+            val oldPreview = snapshotBitmap
+            snapshotBitmap = previewBmp
+            if (oldPreview != null && oldPreview !== previewBmp && !oldPreview.isRecycled) {
+                oldPreview.recycle()
+            }
+            snapshotToastMessage = if (savedToGallery) {
+                if (isRtlLayout) "تم حفظ اللقطة في المعرض 📷" else "Frame saved to Gallery 📷"
+            } else {
+                if (isRtlLayout) "تم الالتقاط (تعذر الحفظ في المعرض)" else "Frame captured (Gallery save failed)"
+            }
             showSnapshotToast = true
         }
     }
@@ -600,7 +644,7 @@ fun ExoVideoPlayer(
         showPremiumUnlockDialog = true
     }
 
-    // Initialize ExoPlayer
+    // Initialize ExoPlayer & LoudnessEnhancer audio booster
     val exoPlayer = remember {
         val videoAudioAttributes = AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)
@@ -612,6 +656,32 @@ fun ExoVideoPlayer(
                 playWhenReady = true
                 repeatMode = Player.REPEAT_MODE_ALL
             }
+    }
+    val loudnessEnhancerHolder = remember { arrayOfNulls<LoudnessEnhancer>(1) }
+    var delayedCueJob by remember { mutableStateOf<Job?>(null) }
+
+    fun applyLoudnessBoost(boost: Float) {
+        val enhancer = loudnessEnhancerHolder[0] ?: return
+        runCatching {
+            val clamped = boost.coerceIn(1.0f, 2.0f)
+            if (clamped > 1.01f) {
+                val targetGainMb = ((clamped - 1.0f) * 1800f).toInt().coerceIn(0, 1800)
+                enhancer.setTargetGain(targetGainMb)
+                enhancer.enabled = true
+            } else {
+                enhancer.setTargetGain(0)
+                enhancer.enabled = false
+            }
+        }
+    }
+
+    fun attachLoudnessEnhancer(audioSessionId: Int) {
+        if (audioSessionId == C.AUDIO_SESSION_ID_UNSET || audioSessionId == 0) return
+        runCatching { loudnessEnhancerHolder[0]?.release() }
+        loudnessEnhancerHolder[0] = runCatching {
+            LoudnessEnhancer(audioSessionId)
+        }.getOrNull()
+        applyLoudnessBoost(audioBoostMultiplier)
     }
 
     fun togglePlayPauseWithFeedback(fromDoubleTap: Boolean = false) {
@@ -695,7 +765,7 @@ fun ExoVideoPlayer(
         )
         isAutoCropBlackBars = persistentConfig.isAutoCropBlackBars
         audioBoostMultiplier = persistentConfig.audioBoostMultiplier.coerceIn(1.0f, 2.0f)
-        subtitleDelayOffsetMs = persistentConfig.subtitleDelayOffsetMs
+        subtitleDelayOffsetMs = persistentConfig.subtitleDelayOffsetMs.coerceIn(0L, 5000L)
         isLeftToolbarCollapsed = persistentConfig.isToolbarCollapsed
         if (!toolbarCollapseProgress.isRunning) {
             toolbarCollapseProgress.snapTo(if (persistentConfig.isToolbarCollapsed) 1f else 0f)
@@ -703,11 +773,44 @@ fun ExoVideoPlayer(
         if (!isHoldSpeedActive) {
             exoPlayer.playbackParameters = PlaybackParameters(restoredSpeed)
         }
-        exoPlayer.volume = (uiState.volume * audioBoostMultiplier).coerceIn(0f, 2.0f)
+        exoPlayer.volume = uiState.volume.coerceIn(0f, 1f)
+        applyLoudnessBoost(audioBoostMultiplier)
         playerViewRef?.resizeMode = if (isAutoCropBlackBars) {
             AspectRatioFrameLayout.RESIZE_MODE_ZOOM
         } else {
             restoredResizeMode.exoMode
+        }
+    }
+
+    LaunchedEffect(exoPlayer, uiState.selectedAudioTrack, uiState.selectedSubtitle) {
+        runCatching {
+            val builder = exoPlayer.trackSelectionParameters.buildUpon()
+            when (uiState.selectedAudioTrack) {
+                "Stereo 2.0 (AAC)" -> builder.setMaxAudioChannelCount(2)
+                "Surround 5.1 (Dolby Digital)" -> builder.setMaxAudioChannelCount(6)
+                else -> builder.setMaxAudioChannelCount(Int.MAX_VALUE)
+            }
+            when (uiState.selectedSubtitle) {
+                "Off" -> builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                "English [CC]" -> builder
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                    .setPreferredTextLanguage("en")
+                "Arabic (العربية)" -> builder
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                    .setPreferredTextLanguage("ar")
+                "French (Français)" -> builder
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                    .setPreferredTextLanguage("fr")
+                else -> builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            }
+            exoPlayer.trackSelectionParameters = builder.build()
+        }
+    }
+
+    LaunchedEffect(subtitleDelayOffsetMs) {
+        if (subtitleDelayOffsetMs <= 0L) {
+            delayedCueJob?.cancel()
+            delayedCueJob = null
         }
     }
 
@@ -805,6 +908,23 @@ fun ExoVideoPlayer(
                 com.example.data.local.MediaPlaybackActivityBus.setVideoPlaying(isPlaying)
             }
 
+            override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                attachLoudnessEnhancer(audioSessionId)
+            }
+
+            override fun onCues(cueGroup: CueGroup) {
+                val delayMs = subtitleDelayOffsetMs.coerceIn(0L, 5000L)
+                val subtitleView = playerViewRef?.subtitleView ?: return
+                if (delayMs > 0L) {
+                    subtitleView.setCues(emptyList())
+                    delayedCueJob?.cancel()
+                    delayedCueJob = scope.launch {
+                        delay(delayMs)
+                        playerViewRef?.subtitleView?.setCues(cueGroup.cues)
+                    }
+                }
+            }
+
             override fun onVideoSizeChanged(videoSize: VideoSize) {
                 if (videoSize.width > 0 && videoSize.height > 0) {
                     videoWidth = videoSize.width
@@ -812,9 +932,19 @@ fun ExoVideoPlayer(
                 }
             }
         }
+        attachLoudnessEnhancer(exoPlayer.audioSessionId)
         exoPlayer.addListener(listener)
 
         onDispose {
+            delayedCueJob?.cancel()
+            delayedCueJob = null
+            runCatching { loudnessEnhancerHolder[0]?.release() }
+            loudnessEnhancerHolder[0] = null
+            val staleSnapshot = snapshotBitmap
+            snapshotBitmap = null
+            if (staleSnapshot != null && !staleSnapshot.isRecycled) {
+                staleSnapshot.recycle()
+            }
             com.example.data.local.MediaPlaybackActivityBus.setVideoPlaying(false)
             try {
                 val pos = exoPlayer.currentPosition
@@ -3328,7 +3458,8 @@ fun ExoVideoPlayer(
                         steps = 9,
                         onValueChange = { boost ->
                             audioBoostMultiplier = boost
-                            exoPlayer.volume = (uiState.volume * boost).coerceIn(0f, 2.0f)
+                            exoPlayer.volume = uiState.volume.coerceIn(0f, 1f)
+                            applyLoudnessBoost(boost)
                             playerAmbientViewModel.setAudioBoostMultiplier(boost)
                         },
                         colors = SliderDefaults.colors(
@@ -3402,7 +3533,7 @@ fun ExoVideoPlayer(
                                     .weight(1f)
                                     .clickable {
                                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        val nextOffset = if (delta == 0L) 0L else subtitleDelayOffsetMs + delta
+                                        val nextOffset = if (delta == 0L) 0L else (subtitleDelayOffsetMs + delta).coerceIn(0L, 5000L)
                                         subtitleDelayOffsetMs = nextOffset
                                         playerAmbientViewModel.setSubtitleDelayOffsetMs(nextOffset)
                                     }
@@ -3467,7 +3598,7 @@ fun ExoVideoPlayer(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "تم التقاط الإطار السينمائي بنجاح 📷",
+                        text = snapshotToastMessage,
                         style = MaterialTheme.typography.labelMedium.copy(
                             color = Color.White,
                             fontWeight = FontWeight.Bold
@@ -5340,6 +5471,49 @@ private fun DoubleTapPlayPauseOverlay(
                 modifier = Modifier.size(36.dp)
             )
         }
+    }
+}
+
+private fun saveSnapshotBitmapToGallery(context: Context, bitmap: Bitmap): Boolean {
+    if (bitmap.isRecycled) return false
+    val fileName = "AuraPulse_Frame_${System.currentTimeMillis()}.jpg"
+    return try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val resolver = context.contentResolver
+            val values = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+                put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/AuraPulse")
+                put(MediaStore.Images.Media.IS_PENDING, 1)
+            }
+            val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                ?: return false
+            val wrote = resolver.openOutputStream(uri)?.use { out ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
+            } ?: false
+            if (wrote) {
+                values.clear()
+                values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                resolver.update(uri, values, null, null)
+                true
+            } else {
+                resolver.delete(uri, null, null)
+                false
+            }
+        } else {
+            val dir = context.getExternalFilesDir(Environment.DIRECTORY_PICTURES) ?: return false
+            if (!dir.exists()) dir.mkdirs()
+            val outFile = File(dir, fileName)
+            FileOutputStream(outFile).use { out ->
+                if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)) {
+                    return false
+                }
+            }
+            MediaScannerConnection.scanFile(context, arrayOf(outFile.absolutePath), arrayOf("image/jpeg"), null)
+            true
+        }
+    } catch (_: Throwable) {
+        false
     }
 }
 

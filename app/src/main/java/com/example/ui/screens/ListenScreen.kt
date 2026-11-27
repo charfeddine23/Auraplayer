@@ -1,8 +1,11 @@
 package com.example.ui.screens
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -200,9 +203,10 @@ fun ListenScreen(
         }
     }
 
-    // Auto-scan device audio if permission is already granted
+    // Auto-scan device audio if permission is already granted & sync initial audio effects
     LaunchedEffect(Unit) {
         playbackManager.autoScanDeviceAudiosIfPermitted()
+        playbackManager.updateAudioEffects(eqBands.toList(), bassBoostPercent, isSpatialAudioEnabled)
     }
 
     // Derived collections & stats
@@ -223,7 +227,6 @@ fun ListenScreen(
             ?: localDisplayTracks.firstOrNull()
             ?: topTrack
     }
-    val downloadedTracks = playlist.filter { downloadedIds.contains(it.id) }
     val historyTracks = historyIds.mapNotNull { id -> playlist.firstOrNull { it.id == id } }
     val favoriteTracks = playlist.filter { favoriteIds.contains(it.id) }
 
@@ -477,16 +480,20 @@ fun ListenScreen(
                 onOpenOptions = { showOptionsSheet = true },
                 onOpenQueue = { showQueueSheet = true },
                 onDeviceClick = {
-                    playbackManager.showMessage(
-                        if (isArabic) "الصوت يعمل عبر: $castDeviceName"
-                        else "Audio routed through: $castDeviceName"
-                    )
+                    if (!openSystemAudioOrCastSettings(context, preferCast = false)) {
+                        playbackManager.showMessage(
+                            if (isArabic) "الصوت يعمل عبر: $castDeviceName"
+                            else "Audio routed through: $castDeviceName"
+                        )
+                    }
                 },
                 onCastClick = {
-                    playbackManager.showMessage(
-                        if (isArabic) "جاري البحث عن أجهزة البث المتاحة..."
-                        else "Scanning for Cast devices..."
-                    )
+                    if (!openSystemAudioOrCastSettings(context, preferCast = true)) {
+                        playbackManager.showMessage(
+                            if (isArabic) "إعدادات البث اللاسلكي غير مدعومة على هذا الجهاز"
+                            else "Wireless Cast settings are unavailable on this device"
+                        )
+                    }
                 }
             )
         }
@@ -516,12 +523,10 @@ fun ListenScreen(
             }
         }
 
-        // Collection Sheet (Downloads / Local Music / History / Liked Songs)
+        // Collection Sheet (History / Liked Songs)
         val sheetType = activeCollectionSheet
         if (sheetType != null) {
             val collectionTracks = when (sheetType) {
-                LibraryCollectionSheetType.DOWNLOADS -> downloadedTracks
-                LibraryCollectionSheetType.LOCAL_MUSIC -> localTracks
                 LibraryCollectionSheetType.HISTORY -> historyTracks
                 LibraryCollectionSheetType.FAVORITES -> favoriteTracks
             }
@@ -540,16 +545,6 @@ fun ListenScreen(
                 },
                 onToggleDownload = { track ->
                     playbackManager.toggleDownloaded(track.id, isArabic)
-                },
-                onScanDeviceMusic = {
-                    if (!LocalMediaScanner.hasStorageOrAudioPermission(context)) {
-                        permissionLauncher.launch(LocalMediaScanner.getAudioPermissions())
-                    } else {
-                        scanDeviceAudios()
-                    }
-                },
-                onOpenAudioFilePicker = {
-                    audioFilePicker.launch(arrayOf("audio/*"))
                 }
             )
         }
@@ -664,11 +659,7 @@ fun ListenScreen(
                 },
                 onAddToPlaylistClick = { showCreatePlaylistDialog = true },
                 onPlayNext = {
-                    val nextIdx = (currentTrackIndex + 1) % playlist.size
-                    playbackManager.showMessage(
-                        if (isArabic) "التالي: ${playlist[nextIdx].title}"
-                        else "Up next: ${playlist[nextIdx].title}"
-                    )
+                    playbackManager.queueTrackNext(currentTrack, isArabic)
                 },
                 onOpenSleepTimer = { showSleepTimerSheet = true },
                 onShowMessage = { msg -> playbackManager.showMessage(msg) }
@@ -715,15 +706,50 @@ fun ListenScreen(
                             eqBands[0] = 6f; eqBands[1] = 4f; eqBands[2] = -1f; eqBands[3] = 3f; eqBands[4] = 7f
                             bassBoostPercent = 80
                         }
+                        "Custom" -> Unit
                     }
-                    playbackManager.updateAudioEffects(eqBands, bassBoostPercent)
+                    playbackManager.updateAudioEffects(eqBands.toList(), bassBoostPercent, isSpatialAudioEnabled)
                 },
-                onToggleSpatialAudio = { isSpatialAudioEnabled = it },
+                onToggleSpatialAudio = { enabled ->
+                    isSpatialAudioEnabled = enabled
+                    playbackManager.updateAudioEffects(eqBands.toList(), bassBoostPercent, enabled)
+                },
                 onBassBoostChange = {
                     bassBoostPercent = it
-                    playbackManager.updateAudioEffects(eqBands, it)
+                    playbackManager.updateAudioEffects(eqBands.toList(), it, isSpatialAudioEnabled)
                 }
             )
         }
     }
+}
+
+private fun openSystemAudioOrCastSettings(context: Context, preferCast: Boolean): Boolean {
+    val actions = if (preferCast) {
+        listOf(
+            Settings.ACTION_CAST_SETTINGS,
+            "android.settings.WIFI_DISPLAY_SETTINGS",
+            Settings.ACTION_BLUETOOTH_SETTINGS,
+            Settings.ACTION_SOUND_SETTINGS
+        )
+    } else {
+        listOf(
+            Settings.ACTION_BLUETOOTH_SETTINGS,
+            Settings.ACTION_SOUND_SETTINGS
+        )
+    }
+    for (action in actions) {
+        val intent = Intent(action).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        val launched = runCatching {
+            if (intent.resolveActivity(context.packageManager) != null) {
+                context.startActivity(intent)
+                true
+            } else {
+                false
+            }
+        }.getOrDefault(false)
+        if (launched) return true
+    }
+    return false
 }

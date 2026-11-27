@@ -187,15 +187,15 @@ private suspend fun loadAndExtractAlbumPalette(
         fallbackTertiary = fallbackTertiary
     )
 
-    var ownedBitmap: Bitmap? = null
+    var decodedResourceBitmap: Bitmap? = null
     val sourceBitmap: Bitmap? = when {
         coverBitmap != null && !coverBitmap.isRecycled -> coverBitmap
-        track.albumArtUri != null -> withContext(Dispatchers.IO) {
+        track.albumArtUri != null || (track.isFromDevice && !track.audioUri.isNullOrBlank()) -> withContext(Dispatchers.IO) {
             LocalMediaScanner.extractAudioCoverArt(
                 context = context,
                 audioUriStr = track.audioUri,
                 albumArtUriStr = track.albumArtUri
-            ).also { ownedBitmap = it }
+            )
         }
         else -> withContext(Dispatchers.IO) {
             runCatching {
@@ -204,7 +204,7 @@ private suspend fun loadAndExtractAlbumPalette(
                     inPreferredConfig = Bitmap.Config.ARGB_8888
                 }
                 BitmapFactory.decodeResource(context.resources, track.albumCoverRes, opts)
-            }.getOrNull().also { ownedBitmap = it }
+            }.getOrNull().also { decodedResourceBitmap = it }
         }
     }
 
@@ -219,8 +219,9 @@ private suspend fun loadAndExtractAlbumPalette(
             fallback = fallback
         )
     } finally {
-        if (ownedBitmap != null && ownedBitmap !== coverBitmap && ownedBitmap?.isRecycled == false) {
-            ownedBitmap?.recycle()
+        val toRecycle = decodedResourceBitmap
+        if (toRecycle != null && toRecycle !== coverBitmap && !toRecycle.isRecycled) {
+            toRecycle.recycle()
         }
     }
 }

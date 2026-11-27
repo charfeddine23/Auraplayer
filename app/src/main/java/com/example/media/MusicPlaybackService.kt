@@ -4,6 +4,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
+import android.media.audiofx.Virtualizer
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -28,6 +29,7 @@ class MusicPlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private var equalizer: Equalizer? = null
     private var bassBoost: BassBoost? = null
+    private var virtualizer: Virtualizer? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -111,6 +113,9 @@ class MusicPlaybackService : MediaSessionService() {
         runCatching {
             bassBoost = BassBoost(0, audioSessionId).apply { enabled = true }
         }
+        runCatching {
+            virtualizer = Virtualizer(0, audioSessionId).apply { enabled = pendingSpatialEnabled }
+        }
         applyCurrentEffects()
     }
 
@@ -127,7 +132,7 @@ class MusicPlaybackService : MediaSessionService() {
                     val uiIdx = (bandIdx.toFloat() / bandCount.coerceAtLeast(1) * bands.size)
                         .toInt()
                         .coerceIn(0, bands.lastIndex)
-                    val db = bands[uiIdx].coerceIn(-10f, 10f)
+                    val db = bands[uiIdx].coerceIn(-12f, 12f)
                     val mB = (db * 100f).coerceIn(minLevel, maxLevel).toInt().toShort()
                     eq.setBandLevel(bandIdx.toShort(), mB)
                 }
@@ -142,13 +147,25 @@ class MusicPlaybackService : MediaSessionService() {
                 }
             }
         }
+        val virt = virtualizer
+        if (virt != null) {
+            runCatching {
+                virt.enabled = pendingSpatialEnabled
+                if (virt.strengthSupported) {
+                    val targetStrength = if (pendingSpatialEnabled) 750.toShort() else 0.toShort()
+                    virt.setStrength(targetStrength)
+                }
+            }
+        }
     }
 
     private fun releaseAudioEffects() {
         runCatching { equalizer?.release() }
         runCatching { bassBoost?.release() }
+        runCatching { virtualizer?.release() }
         equalizer = null
         bassBoost = null
+        virtualizer = null
     }
 
     companion object {
@@ -165,9 +182,17 @@ class MusicPlaybackService : MediaSessionService() {
         @Volatile
         private var pendingBassBoostPercent: Int = 75
 
-        fun updateAudioEffects(eqBands: List<Float>, bassBoostPercent: Int) {
+        @Volatile
+        private var pendingSpatialEnabled: Boolean = true
+
+        fun updateAudioEffects(
+            eqBands: List<Float>,
+            bassBoostPercent: Int,
+            spatialEnabled: Boolean = pendingSpatialEnabled
+        ) {
             pendingEqBands = eqBands.toList()
             pendingBassBoostPercent = bassBoostPercent
+            pendingSpatialEnabled = spatialEnabled
             instance?.applyCurrentEffects()
         }
     }

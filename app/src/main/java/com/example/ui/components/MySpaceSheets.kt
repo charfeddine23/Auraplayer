@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -653,6 +654,199 @@ fun MySpaceOfflineMediaSheet(
                                             fontSize = 11.sp
                                         ),
                                         maxLines = 1
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MySpaceLikedVideosSheet(
+    likedVideos: List<LocalDeviceVideo>,
+    isArabic: Boolean,
+    onPlayLocalVideo: (LocalDeviceVideo) -> Unit,
+    onUnlikeVideo: (LocalDeviceVideo) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val aura = MaterialTheme.aura
+    val bodyFont = if (isArabic) CairoFontFamily else PlusJakartaSansFontFamily
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = aura.dialogBg,
+        contentColor = aura.textPrimary
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = if (isArabic) "الفيديوهات المعجب بها" else "Liked Videos",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontFamily = bodyFont,
+                            fontWeight = FontWeight.Black,
+                            color = aura.textPrimary
+                        )
+                    )
+                    Text(
+                        text = if (isArabic) "${likedVideos.size} فيديو" else "${likedVideos.size} liked videos",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontFamily = bodyFont,
+                            color = aura.textSecondary
+                        )
+                    )
+                }
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.minimumInteractiveComponentSize()
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = if (isArabic) "إغلاق" else "Close",
+                        tint = aura.textSecondary
+                    )
+                }
+            }
+
+            if (likedVideos.isEmpty()) {
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = aura.surfaceSubtle,
+                    border = BorderStroke(1.dp, aura.borderMuted),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ThumbUp,
+                            contentDescription = null,
+                            tint = aura.accentCyan,
+                            modifier = Modifier.size(34.dp)
+                        )
+                        Text(
+                            text = if (isArabic) "لا توجد فيديوهات معجب بها بعد" else "No liked videos yet",
+                            style = MaterialTheme.typography.titleSmall.copy(
+                                fontFamily = bodyFont,
+                                color = aura.textPrimary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        )
+                        Text(
+                            text = if (isArabic) {
+                                "اضغط على زر الإعجاب أثناء مشاهدة المقاطع القصيرة لتظهر هنا."
+                            } else {
+                                "Tap Like while watching Shorts to collect your favorites here."
+                            },
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontFamily = bodyFont,
+                                color = aura.textSecondary
+                            )
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(bottom = 8.dp)
+                ) {
+                    items(likedVideos, key = { it.id }) { video ->
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = aura.surfaceCard,
+                            border = BorderStroke(1.dp, aura.borderSubtle),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .clickable {
+                                    onDismiss()
+                                    onPlayLocalVideo(video)
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(80.dp)
+                                        .aspectRatio(16f / 10f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(aura.surfaceSubtle),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    val bmp = video.bitmap
+                                    if (bmp != null) {
+                                        Image(
+                                            bitmap = bmp.asImageBitmap(),
+                                            contentDescription = video.title,
+                                            contentScale = ContentScale.Crop,
+                                            filterQuality = FilterQuality.High,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Default.PlayArrow,
+                                            contentDescription = null,
+                                            tint = aura.accentCyan
+                                        )
+                                    }
+                                }
+
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = formatCleanTitle(video.title, true),
+                                        style = MaterialTheme.typography.titleSmall.copy(
+                                            fontFamily = bodyFont,
+                                            color = aura.textPrimary,
+                                            fontWeight = FontWeight.Bold
+                                        ),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = "${video.folderName} • ${video.durationText}",
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            fontFamily = PlusJakartaSansFontFamily,
+                                            color = aura.textSecondary,
+                                            fontSize = 11.5.sp
+                                        ),
+                                        maxLines = 1
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = { onUnlikeVideo(video) },
+                                    modifier = Modifier.minimumInteractiveComponentSize()
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ThumbUp,
+                                        contentDescription = if (isArabic) "إزالة الإعجاب" else "Unlike",
+                                        tint = aura.accentCyan
                                     )
                                 }
                             }

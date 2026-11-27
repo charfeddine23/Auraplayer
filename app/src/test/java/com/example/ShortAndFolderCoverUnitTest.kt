@@ -1,8 +1,8 @@
 package com.example
 
 import com.example.data.model.LocalDeviceVideo
-import com.example.data.model.SHORT_MAX_DURATION_MS
-import com.example.data.model.isShortEligible
+import com.example.data.model.MAX_SHORT_VIDEO_DURATION_MS
+import com.example.data.model.isEligibleShortVideo
 import com.example.data.util.OnlineFolderCoverFetcher
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -13,7 +13,7 @@ import org.junit.Test
 class ShortAndFolderCoverUnitTest {
 
     @Test
-    fun isShortEligible_acceptsPortraitUpToThirtyMinutesOnly() {
+    fun isEligibleShortVideo_acceptsPortraitUpToThirtyMinutesOnly() {
         val validShort = LocalDeviceVideo(
             id = "v1",
             title = "Reel",
@@ -26,16 +26,16 @@ class ShortAndFolderCoverUnitTest {
             height = 1920,
             isPortrait = true
         )
-        val exactLimit = validShort.copy(id = "v2", durationMs = SHORT_MAX_DURATION_MS)
-        val overThirtyMin = validShort.copy(id = "v3", durationMs = SHORT_MAX_DURATION_MS + 1L)
+        val exactLimit = validShort.copy(id = "v2", durationMs = MAX_SHORT_VIDEO_DURATION_MS)
+        val overThirtyMin = validShort.copy(id = "v3", durationMs = MAX_SHORT_VIDEO_DURATION_MS + 1L)
         val landscape = validShort.copy(id = "v4", width = 1920, height = 1080, isPortrait = false)
-        val zeroDuration = validShort.copy(id = "v5", durationMs = 0L)
+        val zeroDuration = validShort.copy(id = "v5", durationMs = 0L, durationText = "00:00")
 
-        assertTrue(validShort.isShortEligible())
-        assertTrue(exactLimit.isShortEligible())
-        assertFalse(overThirtyMin.isShortEligible())
-        assertFalse(landscape.isShortEligible())
-        assertFalse(zeroDuration.isShortEligible())
+        assertTrue(validShort.isEligibleShortVideo())
+        assertTrue(exactLimit.isEligibleShortVideo())
+        assertFalse(overThirtyMin.isEligibleShortVideo())
+        assertFalse(landscape.isEligibleShortVideo())
+        assertFalse(zeroDuration.isEligibleShortVideo())
     }
 
     @Test

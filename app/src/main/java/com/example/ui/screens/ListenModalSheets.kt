@@ -51,7 +51,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
@@ -89,8 +88,6 @@ import com.example.ui.theme.aura
 import java.util.Locale
 
 internal enum class LibraryCollectionSheetType {
-    DOWNLOADS,
-    LOCAL_MUSIC,
     HISTORY,
     FAVORITES
 }
@@ -106,15 +103,11 @@ internal fun LibraryTrackCollectionSheet(
     downloadedIds: Set<String>,
     onDismiss: () -> Unit,
     onPlayTrack: (LocalAudioTrack) -> Unit,
-    onToggleDownload: (LocalAudioTrack) -> Unit,
-    onScanDeviceMusic: () -> Unit,
-    onOpenAudioFilePicker: () -> Unit
+    onToggleDownload: (LocalAudioTrack) -> Unit
 ) {
     val aura = MaterialTheme.aura
     val sheetBg = aura.dialogBg
     val title = when (type) {
-        LibraryCollectionSheetType.DOWNLOADS -> if (isArabic) "التنزيلات" else "Downloads"
-        LibraryCollectionSheetType.LOCAL_MUSIC -> if (isArabic) "الموسيقى المحلية" else "Local Music"
         LibraryCollectionSheetType.HISTORY -> if (isArabic) "سجل الاستماع" else "Listening History"
         LibraryCollectionSheetType.FAVORITES -> if (isArabic) "الأغاني المعجب بها" else "Liked Songs"
     }
@@ -151,46 +144,6 @@ internal fun LibraryTrackCollectionSheet(
                     )
                 }
 
-                if (type == LibraryCollectionSheetType.LOCAL_MUSIC) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(
-                            onClick = onScanDeviceMusic,
-                            border = BorderStroke(1.dp, aura.borderSubtle)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = null,
-                                tint = aura.textPrimary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = if (isArabic) "مسح" else "Scan",
-                                color = aura.textPrimary,
-                                fontSize = 12.sp
-                            )
-                        }
-                        Button(
-                            onClick = onOpenAudioFilePicker,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = aura.primaryCtaBg,
-                                contentColor = aura.primaryCtaContent
-                            )
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.FolderOpen,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = if (isArabic) "فتح" else "Open",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
             }
 
             Spacer(modifier = Modifier.height(14.dp))
@@ -214,8 +167,6 @@ internal fun LibraryTrackCollectionSheet(
                         Spacer(modifier = Modifier.height(10.dp))
                         Text(
                             text = when (type) {
-                                LibraryCollectionSheetType.DOWNLOADS -> if (isArabic) "لا توجد تنزيلات محفوظة بعد" else "No saved downloads yet"
-                                LibraryCollectionSheetType.LOCAL_MUSIC -> if (isArabic) "انقر على مسح أو فتح لإضافة موسيقى الهاتف" else "Tap Scan or Open to load device audio files"
                                 LibraryCollectionSheetType.HISTORY -> if (isArabic) "لم تستمع لأي مقطع بعد" else "Your listening history will appear here"
                                 LibraryCollectionSheetType.FAVORITES -> if (isArabic) "لم تعجب بأي أغنية بعد" else "No liked songs yet"
                             },
@@ -1172,8 +1123,8 @@ internal fun EqualizerBottomSheet(
                         value = value,
                         valueRange = -12f..12f,
                         onValueChange = { newVal ->
-                            onSelectPreset("Custom")
                             eqBands[index] = newVal
+                            onSelectPreset("Custom")
                         },
                         colors = SliderDefaults.colors(
                             thumbColor = aura.accentCyan,

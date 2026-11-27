@@ -4,15 +4,16 @@ import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -25,6 +26,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -41,7 +43,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
@@ -54,13 +55,13 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -73,11 +74,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
@@ -96,11 +101,6 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.data.model.LocalAudioTrack
 import com.example.data.util.LocalMediaScanner
-import com.example.ui.theme.AuraAtmosphericLayer
-import com.example.ui.theme.GlassBorder
-import com.example.ui.theme.PulseCyan
-import com.example.ui.theme.PulseViolet
-import com.example.ui.theme.TextDark
 import com.example.ui.theme.aura
 import com.example.ui.theme.stableStatusBarsPadding
 import kotlinx.coroutines.Dispatchers
@@ -108,6 +108,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ListenNowPlayingOverlay(
     isArabic: Boolean,
@@ -163,16 +164,43 @@ internal fun ListenNowPlayingOverlay(
         }
     }
 
-    val infiniteTransition = rememberInfiniteTransition(label = "audio_glow")
-    val neonGlowAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.4f,
-        targetValue = 0.85f,
+    val dynamicPalette = rememberAnimatedAlbumPalette(
+        context = context,
+        track = currentTrack,
+        coverBitmap = coverBitmap,
+        aura = aura
+    )
+
+    val infiniteTransition = rememberInfiniteTransition(label = "player_reactive_pulse")
+    val pulseRatio by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(2200, easing = LinearEasing),
+            animation = tween(durationMillis = 2800, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "neon_glow_alpha"
+        label = "cover_pulse_ratio"
     )
+    val playRingPhase by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2000, easing = CubicBezierEasing(0.18f, 0.85f, 0.32f, 1f)),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "play_halo_phase"
+    )
+
+    val coverScale by animateFloatAsState(
+        targetValue = if (isPlaying) 1.0f else 0.94f,
+        animationSpec = spring(
+            dampingRatio = 0.72f,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "cover_playing_scale"
+    )
+
+    val subtitleTint = if (aura.isDark) dynamicPalette.glowHighlight else dynamicPalette.vibrantPrimary
 
     Box(
         modifier = Modifier
@@ -192,61 +220,13 @@ internal fun ListenNowPlayingOverlay(
             .background(aura.background)
             .testTag("listen_now_playing_screen")
     ) {
-        val artAlpha = if (aura.isDark) 0.35f else 0.18f
-        when {
-            coverBitmap != null && !coverBitmap!!.isRecycled -> {
-                Image(
-                    bitmap = coverBitmap!!.asImageBitmap(),
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                    alpha = artAlpha
-                )
-            }
-            currentTrack.albumArtUri != null -> {
-                AsyncImage(
-                    model = currentTrack.albumArtUri,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                    alpha = artAlpha
-                )
-            }
-            else -> {
-                Image(
-                    painter = painterResource(id = currentTrack.albumCoverRes),
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                    alpha = artAlpha
-                )
-            }
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = if (aura.isDark) {
-                            listOf(
-                                aura.background.copy(alpha = 0.68f),
-                                aura.background.copy(alpha = 0.87f),
-                                aura.background.copy(alpha = 0.96f),
-                                aura.background
-                            )
-                        } else {
-                            listOf(
-                                aura.background.copy(alpha = 0.85f),
-                                aura.background.copy(alpha = 0.92f),
-                                aura.background.copy(alpha = 0.98f),
-                                aura.background
-                            )
-                        }
-                    )
-                )
+        LiquidGlassAtmosphericBackdrop(
+            currentTrack = currentTrack,
+            coverBitmap = coverBitmap,
+            palette = dynamicPalette,
+            isPlaying = isPlaying,
+            aura = aura
         )
-        AuraAtmosphericLayer()
 
         Column(
             modifier = Modifier
@@ -259,152 +239,110 @@ internal fun ListenNowPlayingOverlay(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Top bar with collapse button + quick tools
-            Column(
+            // Top bar: Liquid Glass Collapse Orb + Dynamic Glass Tool Capsules
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 8.dp, bottom = 8.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .padding(top = 8.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                LiquidGlassSurface(
+                    palette = dynamicPalette,
+                    isDark = aura.isDark,
+                    shape = CircleShape,
+                    shadowElevation = 8.dp,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onCollapse()
+                        }
+                        .testTag("listen_collapse_player_button")
                 ) {
-                    IconButton(
-                        onClick = onCollapse,
-                        modifier = Modifier
-                            .size(48.dp)
-                            .testTag("listen_collapse_player_button")
-                    ) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = Icons.Default.KeyboardArrowDown,
                             contentDescription = if (isArabic) "العودة للمكتبة" else "Back to Library",
                             tint = aura.textPrimary,
-                            modifier = Modifier.size(28.dp)
+                            modifier = Modifier.size(26.dp)
                         )
                     }
+                }
 
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = aura.accentCyanSoft,
-                            border = BorderStroke(1.dp, aura.accentCyan.copy(alpha = 0.5f)),
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    onOpenEqualizer()
-                                }
-                                .testTag("listen_equalizer_button")
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Tune,
-                                    contentDescription = "Equalizer",
-                                    tint = aura.accentCyan,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = if (isArabic) "معادل الصوت" else "EQ",
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        color = aura.textPrimary,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 10.sp
-                                    )
-                                )
-                            }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    LiquidGlassTopToolChip(
+                        icon = Icons.Default.Tune,
+                        label = if (isArabic) "معادل الصوت" else "EQ",
+                        contentDescription = "Equalizer",
+                        iconTint = dynamicPalette.vibrantPrimary,
+                        labelColor = aura.textPrimary,
+                        palette = dynamicPalette,
+                        isDark = aura.isDark,
+                        testTag = "listen_equalizer_button",
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onOpenEqualizer()
                         }
+                    )
 
-                        val isTimerActive = sleepTimerRemainingSeconds > 0 || sleepTimerMinutes == -1
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = if (isTimerActive) aura.accentGoldBg else aura.unselectedChipBg,
-                            border = BorderStroke(1.dp, if (isTimerActive) aura.accentGold else aura.borderSubtle),
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    onOpenSleepTimer()
-                                }
-                                .testTag("listen_sleep_timer_button")
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Timer,
-                                    contentDescription = "Sleep Timer",
-                                    tint = if (isTimerActive) aura.accentGold else aura.accentCyan,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                val timerLabel = when {
-                                    sleepTimerMinutes == -1 -> if (isArabic) "نهاية" else "End"
-                                    sleepTimerRemainingSeconds > 0 -> "${sleepTimerRemainingSeconds / 60}m"
-                                    else -> if (isArabic) "مؤقت" else "Timer"
-                                }
-                                Text(
-                                    text = timerLabel,
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        color = if (isTimerActive) aura.accentGold else aura.textPrimary,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 10.sp
-                                    )
-                                )
-                            }
-                        }
-
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = aura.accentCyanSoft,
-                            border = BorderStroke(1.dp, aura.accentCyan.copy(alpha = 0.5f)),
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    onOpenFiles()
-                                }
-                                .testTag("listen_open_files_button")
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.FolderOpen,
-                                    contentDescription = "Open Audio",
-                                    tint = aura.accentCyan,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = if (isArabic) "ملفات" else "Files",
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        color = aura.textPrimary,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 10.sp
-                                    )
-                                )
-                            }
-                        }
+                    val isTimerActive = sleepTimerRemainingSeconds > 0 || sleepTimerMinutes == -1
+                    val timerLabel = when {
+                        sleepTimerMinutes == -1 -> if (isArabic) "نهاية" else "End"
+                        sleepTimerRemainingSeconds > 0 -> "${sleepTimerRemainingSeconds / 60}m"
+                        else -> if (isArabic) "مؤقت" else "Timer"
                     }
+                    LiquidGlassTopToolChip(
+                        icon = Icons.Default.Timer,
+                        label = timerLabel,
+                        contentDescription = "Sleep Timer",
+                        iconTint = if (isTimerActive) aura.accentGold else dynamicPalette.vibrantSecondary,
+                        labelColor = if (isTimerActive) aura.accentGold else aura.textPrimary,
+                        palette = dynamicPalette,
+                        isDark = aura.isDark,
+                        testTag = "listen_sleep_timer_button",
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onOpenSleepTimer()
+                        }
+                    )
+
+                    LiquidGlassTopToolChip(
+                        icon = Icons.Default.FolderOpen,
+                        label = if (isArabic) "ملفات" else "Files",
+                        contentDescription = "Open Audio",
+                        iconTint = dynamicPalette.glowHighlight,
+                        labelColor = aura.textPrimary,
+                        palette = dynamicPalette,
+                        isDark = aura.isDark,
+                        testTag = "listen_open_files_button",
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onOpenFiles()
+                        }
+                    )
                 }
             }
 
-            // Album Artwork Card (press & drag down smoothly returns to song list)
+            // Frameless Album Artwork with Rich Multi-Layered Ambient Shadows Behind It
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(horizontal = 6.dp, vertical = 4.dp)
                     .aspectRatio(1f)
+                    .behindCoverAmbientShadows(
+                        palette = dynamicPalette,
+                        isPlaying = isPlaying,
+                        isDark = aura.isDark,
+                        pulseRatio = pulseRatio
+                    )
+                    .graphicsLayer {
+                        scaleX = coverScale
+                        scaleY = coverScale
+                    }
                     .pointerInput(onCollapse) {
                         val velocityTracker = VelocityTracker()
                         val dismissThresholdPx = 128.dp.toPx()
@@ -479,123 +417,112 @@ internal fun ListenNowPlayingOverlay(
                                 }
                             }
                         }
-                    }
-                    .clip(RoundedCornerShape(24.dp))
-                    .drawBehind {
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                colors = listOf(
-                                    PulseCyan.copy(alpha = neonGlowAlpha * 0.4f),
-                                    Color(0x2210B981),
-                                    Color.Transparent
-                                ),
-                                radius = size.minDimension * 0.75f
-                            )
-                        )
-                    }
-                    .border(
-                        border = BorderStroke(
-                            width = 1.8.dp,
-                            brush = Brush.sweepGradient(
-                                listOf(
-                                    PulseCyan,
-                                    Color(0xFF10B981),
-                                    PulseViolet,
-                                    PulseCyan
-                                )
-                            )
-                        ),
-                        shape = RoundedCornerShape(24.dp)
-                    )
-                    .background(Color(0xD9121826))
-                    .testTag("listen_album_art_card"),
+                    },
                 contentAlignment = Alignment.Center
             ) {
-                when {
-                    coverBitmap != null && !coverBitmap!!.isRecycled -> {
-                        Image(
-                            bitmap = coverBitmap!!.asImageBitmap(),
-                            contentDescription = currentTrack.title,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clip(RoundedCornerShape(24.dp)),
-                            contentScale = ContentScale.Crop
-                        )
-                    }
-                    currentTrack.albumArtUri != null -> {
-                        AsyncImage(
-                            model = currentTrack.albumArtUri,
-                            contentDescription = currentTrack.title,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clip(RoundedCornerShape(24.dp)),
-                            contentScale = ContentScale.Crop
-                        )
-                    }
-                    else -> {
-                        Image(
-                            painter = painterResource(id = currentTrack.albumCoverRes),
-                            contentDescription = currentTrack.title,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clip(RoundedCornerShape(24.dp)),
-                            contentScale = ContentScale.Crop
-                        )
-                    }
-                }
-
+                val artShape = RoundedCornerShape(28.dp)
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(
-                                    Color.Transparent,
-                                    Color(0x44000000),
-                                    Color(0x99000000)
+                        .shadow(
+                            elevation = if (isPlaying) 28.dp else 16.dp,
+                            shape = artShape,
+                            ambientColor = dynamicPalette.deepShadowTint,
+                            spotColor = dynamicPalette.vibrantPrimary
+                        )
+                        .clip(artShape)
+                        .testTag("listen_album_art_card"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    when {
+                        coverBitmap != null && !coverBitmap!!.isRecycled -> {
+                            Image(
+                                bitmap = coverBitmap!!.asImageBitmap(),
+                                contentDescription = currentTrack.title,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                        currentTrack.albumArtUri != null -> {
+                            AsyncImage(
+                                model = currentTrack.albumArtUri,
+                                contentDescription = currentTrack.title,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                        else -> {
+                            Image(
+                                painter = painterResource(id = currentTrack.albumCoverRes),
+                                contentDescription = currentTrack.title,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                    }
+
+                    // Delicate top glass gloss reflection over upper corner only (no frame, no heavy scrim)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.linearGradient(
+                                    colors = listOf(
+                                        Color.White.copy(alpha = 0.14f),
+                                        Color.Transparent,
+                                        Color.Transparent,
+                                        Color.Black.copy(alpha = 0.24f)
+                                    )
                                 )
                             )
-                        )
-                )
+                    )
 
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color(0xCC000000),
-                    border = BorderStroke(1.dp, GlassBorder),
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(14.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    // Floating Liquid Glass audio badge + live reactive spectrum wave
+                    LiquidGlassSurface(
+                        palette = dynamicPalette,
+                        isDark = true,
+                        shape = RoundedCornerShape(16.dp),
+                        tintStrength = 0.9f,
+                        shadowElevation = 6.dp,
+                        borderWidth = 0.8.dp,
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(14.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.GraphicEq,
-                            contentDescription = null,
-                            tint = PulseCyan,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = if (currentTrack.isFromDevice) "MEDIA3 • LOCAL STORAGE" else "320 KBPS • LOSSLESS",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 9.sp
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            ReactiveAudioWaveBars(
+                                isPlaying = isPlaying,
+                                palette = dynamicPalette,
+                                barCount = 10,
+                                modifier = Modifier
+                                    .width(34.dp)
+                                    .height(12.dp)
                             )
-                        )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (currentTrack.isFromDevice) "MEDIA3 • HI-RES" else "320 KBPS • LOSSLESS",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    color = Color.White.copy(alpha = 0.94f),
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 0.5.sp,
+                                    fontSize = 9.5.sp
+                                )
+                            )
+                        }
                     }
                 }
             }
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Track Info + Favorite + Options
+            // Track Info + Glass Favorite & More Buttons
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 4.dp),
+                    .padding(horizontal = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -605,67 +532,89 @@ internal fun ListenNowPlayingOverlay(
                         style = MaterialTheme.typography.titleLarge.copy(
                             fontWeight = FontWeight.ExtraBold,
                             color = aura.textPrimary,
-                            fontSize = 20.sp
+                            fontSize = 21.sp,
+                            letterSpacing = (-0.3).sp
                         ),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Spacer(modifier = Modifier.height(3.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "${currentTrack.artist} • ${currentTrack.album}",
                         style = MaterialTheme.typography.bodyMedium.copy(
-                            color = aura.accentCyan,
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 13.sp
+                            color = subtitleTint,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.5.sp
                         ),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onToggleFavorite()
-                        },
-                        modifier = Modifier.testTag("listen_favorite_button")
+                Spacer(modifier = Modifier.width(10.dp))
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    LiquidGlassSurface(
+                        palette = dynamicPalette,
+                        isDark = aura.isDark,
+                        shape = CircleShape,
+                        shadowElevation = 6.dp,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onToggleFavorite()
+                            }
+                            .testTag("listen_favorite_button")
                     ) {
-                        Icon(
-                            imageVector = if (isFavorite) Icons.Default.Star else Icons.Default.StarBorder,
-                            contentDescription = "Favorite",
-                            tint = if (isFavorite) aura.accentGold else aura.textSecondary,
-                            modifier = Modifier.size(26.dp)
-                        )
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = if (isFavorite) Icons.Default.Star else Icons.Default.StarBorder,
+                                contentDescription = "Favorite",
+                                tint = if (isFavorite) aura.accentGold else aura.textPrimary.copy(alpha = 0.85f),
+                                modifier = Modifier.size(23.dp)
+                            )
+                        }
                     }
 
-                    IconButton(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onOpenOptions()
-                        },
-                        modifier = Modifier.testTag("listen_more_options_button")
+                    LiquidGlassSurface(
+                        palette = dynamicPalette,
+                        isDark = aura.isDark,
+                        shape = CircleShape,
+                        shadowElevation = 6.dp,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onOpenOptions()
+                            }
+                            .testTag("listen_more_options_button")
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.MoreVert,
-                            contentDescription = "Song Options",
-                            tint = aura.textPrimary,
-                            modifier = Modifier.size(24.dp)
-                        )
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "Song Options",
+                                tint = aura.textPrimary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            // Lyrics Preview Card
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = aura.surfaceCard,
-                border = BorderStroke(1.dp, aura.accentCyan.copy(alpha = 0.25f)),
+            // Liquid Glass Lyrics Preview Card
+            LiquidGlassSurface(
+                palette = dynamicPalette,
+                isDark = aura.isDark,
+                shape = RoundedCornerShape(18.dp),
+                shadowElevation = 8.dp,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
                     .clickable {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         onOpenLyrics()
@@ -673,7 +622,9 @@ internal fun ListenNowPlayingOverlay(
                     .testTag("listen_lyrics_preview")
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 11.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -683,15 +634,22 @@ internal fun ListenNowPlayingOverlay(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(28.dp)
+                                .size(30.dp)
                                 .clip(CircleShape)
-                                .background(aura.accentCyanSoft),
+                                .background(
+                                    Brush.linearGradient(
+                                        listOf(
+                                            dynamicPalette.vibrantPrimary.copy(alpha = 0.28f),
+                                            dynamicPalette.vibrantSecondary.copy(alpha = 0.22f)
+                                        )
+                                    )
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.ChatBubbleOutline,
                                 contentDescription = null,
-                                tint = aura.accentCyan,
+                                tint = subtitleTint,
                                 modifier = Modifier.size(15.dp)
                             )
                         }
@@ -700,7 +658,7 @@ internal fun ListenNowPlayingOverlay(
                             text = currentTrack.lyricsLines.firstOrNull()
                                 ?: (if (isArabic) "انقر لعرض الكلمات ومعلومات المقطع..." else "Tap to view lyrics & metadata..."),
                             style = MaterialTheme.typography.bodySmall.copy(
-                                color = aura.textPrimary,
+                                color = aura.textPrimary.copy(alpha = 0.92f),
                                 fontSize = 12.sp,
                                 fontStyle = FontStyle.Italic
                             ),
@@ -709,17 +667,18 @@ internal fun ListenNowPlayingOverlay(
                         )
                     }
                     Spacer(modifier = Modifier.width(8.dp))
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = aura.surfaceSubtle
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(dynamicPalette.vibrantPrimary.copy(alpha = if (aura.isDark) 0.22f else 0.14f))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
                         Text(
                             text = if (isArabic) "الكلمات" else "LYRICS",
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                             style = MaterialTheme.typography.labelSmall.copy(
-                                color = aura.accentCyan,
+                                color = subtitleTint,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 9.sp
+                                fontSize = 9.5.sp
                             )
                         )
                     }
@@ -728,7 +687,7 @@ internal fun ListenNowPlayingOverlay(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Seekbar + Elapsed / Remaining
+            // Luminous Liquid Glass Seekbar + Elapsed / Remaining
             Column(modifier = Modifier.fillMaxWidth()) {
                 val duration = currentDurationMs.coerceAtLeast(1000f)
                 val sliderValue = currentPositionMs.coerceIn(0f, duration)
@@ -738,20 +697,128 @@ internal fun ListenNowPlayingOverlay(
                     onValueChange = onSeekDrag,
                     onValueChangeFinished = onSeekFinish,
                     valueRange = 0f..duration,
-                    colors = SliderDefaults.colors(
-                        thumbColor = aura.accentCyan,
-                        activeTrackColor = aura.accentCyan,
-                        inactiveTrackColor = aura.progressTrack
-                    ),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(20.dp)
-                        .testTag("listen_seekbar")
+                        .height(28.dp)
+                        .testTag("listen_seekbar"),
+                    thumb = {
+                        Box(
+                            modifier = Modifier.size(22.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(22.dp)
+                                    .drawBehind {
+                                        drawCircle(
+                                            brush = Brush.radialGradient(
+                                                colors = listOf(
+                                                    dynamicPalette.glowHighlight.copy(alpha = 0.65f),
+                                                    dynamicPalette.vibrantPrimary.copy(alpha = 0.25f),
+                                                    Color.Transparent
+                                                ),
+                                                radius = size.width * 0.85f
+                                            )
+                                        )
+                                    }
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .shadow(
+                                        elevation = 6.dp,
+                                        shape = CircleShape,
+                                        ambientColor = dynamicPalette.vibrantPrimary,
+                                        spotColor = dynamicPalette.vibrantPrimary
+                                    )
+                                    .clip(CircleShape)
+                                    .background(
+                                        Brush.linearGradient(
+                                            listOf(
+                                                Color.White,
+                                                dynamicPalette.glowHighlight
+                                            )
+                                        )
+                                    )
+                                    .border(1.2.dp, Color.White.copy(alpha = 0.9f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(dynamicPalette.vibrantPrimary)
+                                )
+                            }
+                        }
+                    },
+                    track = { sliderState ->
+                        val rangeSpan = (sliderState.valueRange.endInclusive - sliderState.valueRange.start)
+                            .coerceAtLeast(1f)
+                        val fraction = ((sliderState.value - sliderState.valueRange.start) / rangeSpan)
+                            .coerceIn(0f, 1f)
+
+                        Canvas(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(8.dp)
+                        ) {
+                            val trackHeight = 6.dp.toPx()
+                            val topY = (size.height - trackHeight) * 0.5f
+                            val radius = CornerRadius(trackHeight * 0.5f, trackHeight * 0.5f)
+                            val inactiveColor = if (aura.isDark) {
+                                Color.White.copy(alpha = 0.16f)
+                            } else {
+                                Color(0xFF0F172A).copy(alpha = 0.14f)
+                            }
+
+                            drawRoundRect(
+                                color = inactiveColor,
+                                topLeft = Offset(0f, topY),
+                                size = Size(size.width, trackHeight),
+                                cornerRadius = radius
+                            )
+
+                            val activeWidth = (size.width * fraction).coerceAtLeast(0f)
+                            if (activeWidth > 1f) {
+                                drawRoundRect(
+                                    brush = Brush.horizontalGradient(
+                                        colors = listOf(
+                                            dynamicPalette.vibrantPrimary.copy(alpha = 0.28f),
+                                            dynamicPalette.vibrantSecondary.copy(alpha = 0.24f)
+                                        ),
+                                        startX = 0f,
+                                        endX = activeWidth
+                                    ),
+                                    topLeft = Offset(0f, topY - 2.dp.toPx()),
+                                    size = Size(activeWidth, trackHeight + 4.dp.toPx()),
+                                    cornerRadius = CornerRadius(trackHeight, trackHeight)
+                                )
+                                drawRoundRect(
+                                    brush = Brush.horizontalGradient(
+                                        colors = listOf(
+                                            dynamicPalette.vibrantPrimary,
+                                            dynamicPalette.glowHighlight,
+                                            dynamicPalette.vibrantSecondary
+                                        ),
+                                        startX = 0f,
+                                        endX = activeWidth
+                                    ),
+                                    topLeft = Offset(0f, topY),
+                                    size = Size(activeWidth, trackHeight),
+                                    cornerRadius = radius
+                                )
+                            }
+                        }
+                    }
                 )
 
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     val currentSecTotal = (sliderValue / 1000).toInt()
                     val currentMin = currentSecTotal / 60
@@ -763,22 +830,32 @@ internal fun ListenNowPlayingOverlay(
                         text = String.format(Locale.US, "%02d:%02d", currentMin, currentSec),
                         style = MaterialTheme.typography.labelSmall.copy(
                             color = aura.textSecondary,
-                            fontSize = 11.sp
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 11.5.sp
                         )
+                    )
+                    ReactiveAudioWaveBars(
+                        isPlaying = isPlaying,
+                        palette = dynamicPalette,
+                        barCount = 16,
+                        modifier = Modifier
+                            .width(64.dp)
+                            .height(12.dp)
                     )
                     Text(
                         text = String.format(Locale.US, "-%02d:%02d", remainingSec / 60, remainingSec % 60),
                         style = MaterialTheme.typography.labelSmall.copy(
                             color = aura.textSecondary,
-                            fontSize = 11.sp
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 11.5.sp
                         )
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            // Playback Controls
+            // Liquid Glass Transport Controls
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -786,84 +863,143 @@ internal fun ListenNowPlayingOverlay(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        onSkipPrevious()
-                    },
+                LiquidGlassSurface(
+                    palette = dynamicPalette,
+                    isDark = aura.isDark,
+                    shape = CircleShape,
+                    shadowElevation = 8.dp,
                     modifier = Modifier
-                        .size(52.dp)
+                        .size(56.dp)
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onSkipPrevious()
+                        }
                         .testTag("listen_skip_previous_button")
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.SkipPrevious,
-                        contentDescription = "Skip Previous",
-                        tint = aura.textPrimary,
-                        modifier = Modifier.size(36.dp)
-                    )
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.SkipPrevious,
+                            contentDescription = "Skip Previous",
+                            tint = aura.textPrimary,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
                 }
 
+                // Luminous Play / Pause Crystal Orb with Reactive Halo
                 Box(
                     modifier = Modifier
-                        .size(72.dp)
-                        .clip(CircleShape)
+                        .size(92.dp)
                         .drawBehind {
+                            val baseRadius = size.minDimension * 0.44f
                             drawCircle(
                                 brush = Brush.radialGradient(
                                     colors = listOf(
-                                        aura.accentCyan.copy(alpha = 0.5f),
-                                        aura.accentEmerald.copy(alpha = 0.25f),
+                                        dynamicPalette.vibrantPrimary.copy(alpha = if (isPlaying) 0.56f else 0.30f),
+                                        dynamicPalette.vibrantSecondary.copy(alpha = if (isPlaying) 0.28f else 0.14f),
                                         Color.Transparent
                                     ),
-                                    radius = size.width * 0.9f
+                                    radius = size.minDimension * 0.54f
                                 )
                             )
-                        }
-                        .background(
-                            Brush.linearGradient(
-                                listOf(aura.accentCyan, aura.accentEmerald)
-                            )
-                        )
-                        .clickable {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onPlayPause()
-                        }
-                        .testTag("listen_play_pause_button"),
+                            if (isPlaying) {
+                                val ringRadius = baseRadius + (size.minDimension * 0.16f) * playRingPhase
+                                val ringAlpha = (1f - playRingPhase) * 0.48f
+                                drawCircle(
+                                    color = dynamicPalette.glowHighlight.copy(alpha = ringAlpha),
+                                    radius = ringRadius,
+                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx())
+                                )
+                            }
+                        },
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = if (isPlaying) "Pause" else "Play",
-                        tint = if (aura.isDark) TextDark else Color.White,
-                        modifier = Modifier.size(38.dp)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(76.dp)
+                            .shadow(
+                                elevation = 18.dp,
+                                shape = CircleShape,
+                                ambientColor = dynamicPalette.deepShadowTint,
+                                spotColor = dynamicPalette.vibrantPrimary
+                            )
+                            .clip(CircleShape)
+                            .background(
+                                Brush.linearGradient(
+                                    colors = listOf(
+                                        dynamicPalette.vibrantPrimary,
+                                        dynamicPalette.vibrantSecondary
+                                    )
+                                )
+                            )
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.White.copy(alpha = 0.34f),
+                                        Color.Transparent,
+                                        Color.Black.copy(alpha = 0.16f)
+                                    )
+                                )
+                            )
+                            .border(
+                                width = 1.25.dp,
+                                brush = Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.White.copy(alpha = 0.78f),
+                                        dynamicPalette.glowHighlight.copy(alpha = 0.35f),
+                                        Color.White.copy(alpha = 0.12f)
+                                    )
+                                ),
+                                shape = CircleShape
+                            )
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onPlayPause()
+                            }
+                            .testTag("listen_play_pause_button"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = if (isPlaying) "Pause" else "Play",
+                            tint = dynamicPalette.onPrimaryAccent,
+                            modifier = Modifier.size(38.dp)
+                        )
+                    }
                 }
 
-                IconButton(
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        onSkipNext()
-                    },
+                LiquidGlassSurface(
+                    palette = dynamicPalette,
+                    isDark = aura.isDark,
+                    shape = CircleShape,
+                    shadowElevation = 8.dp,
                     modifier = Modifier
-                        .size(52.dp)
+                        .size(56.dp)
+                        .clickable {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onSkipNext()
+                        }
                         .testTag("listen_skip_next_button")
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.SkipNext,
-                        contentDescription = "Skip Next",
-                        tint = aura.textPrimary,
-                        modifier = Modifier.size(36.dp)
-                    )
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.SkipNext,
+                            contentDescription = "Skip Next",
+                            tint = aura.textPrimary,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Bottom Utility Bar (no bottom fade glass overlay)
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = aura.surfaceCard,
-                border = BorderStroke(1.dp, aura.borderSubtle),
+            // Bottom Liquid Glass Utility Dock
+            LiquidGlassSurface(
+                palette = dynamicPalette,
+                isDark = aura.isDark,
+                shape = RoundedCornerShape(24.dp),
+                shadowElevation = 12.dp,
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
@@ -872,21 +1008,22 @@ internal fun ListenNowPlayingOverlay(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
+                            .defaultMinSize(minHeight = 48.dp)
+                            .clip(RoundedCornerShape(14.dp))
                             .clickable(onClick = onDeviceClick)
-                            .padding(4.dp)
+                            .padding(horizontal = 8.dp, vertical = 6.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Smartphone,
                             contentDescription = null,
-                            tint = aura.accentCyan,
+                            tint = subtitleTint,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
@@ -895,52 +1032,104 @@ internal fun ListenNowPlayingOverlay(
                             style = MaterialTheme.typography.labelSmall.copy(
                                 color = aura.textPrimary,
                                 fontWeight = FontWeight.SemiBold,
-                                fontSize = 11.sp
-                            )
+                                fontSize = 11.5.sp
+                            ),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
 
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(
                             onClick = onOpenLyrics,
-                            modifier = Modifier.size(40.dp)
+                            modifier = Modifier.size(48.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.ChatBubbleOutline,
                                 contentDescription = "Lyrics",
-                                tint = aura.textSecondary,
+                                tint = aura.textPrimary.copy(alpha = 0.80f),
                                 modifier = Modifier.size(20.dp)
                             )
                         }
 
                         IconButton(
                             onClick = onCastClick,
-                            modifier = Modifier.size(40.dp)
+                            modifier = Modifier.size(48.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Cast,
                                 contentDescription = "Cast",
-                                tint = aura.textSecondary,
+                                tint = aura.textPrimary.copy(alpha = 0.80f),
                                 modifier = Modifier.size(20.dp)
                             )
                         }
 
                         IconButton(
                             onClick = onOpenQueue,
-                            modifier = Modifier.size(40.dp)
+                            modifier = Modifier.size(48.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.QueueMusic,
                                 contentDescription = "Queue",
-                                tint = aura.textSecondary,
+                                tint = subtitleTint,
                                 modifier = Modifier.size(22.dp)
                             )
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LiquidGlassTopToolChip(
+    icon: ImageVector,
+    label: String,
+    contentDescription: String,
+    iconTint: Color,
+    labelColor: Color,
+    palette: AlbumDynamicPalette,
+    isDark: Boolean,
+    testTag: String,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .minimumInteractiveComponentSize()
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .testTag(testTag),
+        contentAlignment = Alignment.Center
+    ) {
+        LiquidGlassSurface(
+            palette = palette,
+            isDark = isDark,
+            shape = RoundedCornerShape(14.dp),
+            shadowElevation = 6.dp
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = contentDescription,
+                    tint = iconTint,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(modifier = Modifier.width(5.dp))
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        color = labelColor,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 10.5.sp
+                    )
+                )
             }
         }
     }

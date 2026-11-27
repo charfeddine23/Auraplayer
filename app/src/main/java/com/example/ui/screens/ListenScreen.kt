@@ -544,14 +544,14 @@ fun ListenScreen(
                 LibraryMenuSection(
                     isArabic = isArabic,
                     localMusicCount = localTracks.size,
-                    cachedCount = playlist.size,
+                    likedSongsCount = favoriteTracks.size,
                     onLocalMusicClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         showLocalMusicScreen = true
                     },
-                    onCachedClick = {
+                    onLikedSongsClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        activeCollectionSheet = LibraryCollectionSheetType.CACHED_SONGS
+                        activeCollectionSheet = LibraryCollectionSheetType.FAVORITES
                     }
                 )
                 Spacer(modifier = Modifier.height(22.dp))
@@ -565,10 +565,6 @@ fun ListenScreen(
                     onNewPlaylistClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         showCreatePlaylistDialog = true
-                    },
-                    onImportOrToolsClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        audioFilePicker.launch(arrayOf("audio/*"))
                     },
                     onOpenFavoritesPlaylist = {
                         activeCollectionSheet = LibraryCollectionSheetType.FAVORITES
@@ -765,13 +761,12 @@ fun ListenScreen(
             }
         }
 
-        // Collection Sheet (Downloads / Local Music / Cached / History / Favorites)
+        // Collection Sheet (Downloads / Local Music / History / Liked Songs)
         val sheetType = activeCollectionSheet
         if (sheetType != null) {
             val collectionTracks = when (sheetType) {
                 LibraryCollectionSheetType.DOWNLOADS -> downloadedTracks
                 LibraryCollectionSheetType.LOCAL_MUSIC -> localTracks
-                LibraryCollectionSheetType.CACHED_SONGS -> playlist.toList()
                 LibraryCollectionSheetType.HISTORY -> historyTracks
                 LibraryCollectionSheetType.FAVORITES -> favoriteTracks
             }

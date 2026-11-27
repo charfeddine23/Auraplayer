@@ -91,7 +91,6 @@ import java.util.Locale
 internal enum class LibraryCollectionSheetType {
     DOWNLOADS,
     LOCAL_MUSIC,
-    CACHED_SONGS,
     HISTORY,
     FAVORITES
 }
@@ -116,9 +115,8 @@ internal fun LibraryTrackCollectionSheet(
     val title = when (type) {
         LibraryCollectionSheetType.DOWNLOADS -> if (isArabic) "التنزيلات" else "Downloads"
         LibraryCollectionSheetType.LOCAL_MUSIC -> if (isArabic) "الموسيقى المحلية" else "Local Music"
-        LibraryCollectionSheetType.CACHED_SONGS -> if (isArabic) "الأغاني المخزنة مؤقتاً" else "Cached songs"
         LibraryCollectionSheetType.HISTORY -> if (isArabic) "سجل الاستماع" else "Listening History"
-        LibraryCollectionSheetType.FAVORITES -> if (isArabic) "المقاطع المفضلة" else "Favorites"
+        LibraryCollectionSheetType.FAVORITES -> if (isArabic) "الأغاني المعجب بها" else "Liked Songs"
     }
 
     ModalBottomSheet(
@@ -219,7 +217,7 @@ internal fun LibraryTrackCollectionSheet(
                                 LibraryCollectionSheetType.DOWNLOADS -> if (isArabic) "لا توجد تنزيلات محفوظة بعد" else "No saved downloads yet"
                                 LibraryCollectionSheetType.LOCAL_MUSIC -> if (isArabic) "انقر على مسح أو فتح لإضافة موسيقى الهاتف" else "Tap Scan or Open to load device audio files"
                                 LibraryCollectionSheetType.HISTORY -> if (isArabic) "لم تستمع لأي مقطع بعد" else "Your listening history will appear here"
-                                else -> if (isArabic) "لا توجد مقاطع هنا" else "No tracks available"
+                                LibraryCollectionSheetType.FAVORITES -> if (isArabic) "لم تعجب بأي أغنية بعد" else "No liked songs yet"
                             },
                             style = MaterialTheme.typography.bodyMedium.copy(
                                 color = aura.textSecondary,

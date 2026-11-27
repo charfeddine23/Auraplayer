@@ -198,13 +198,14 @@ fun MySpaceScreen(
             contentPadding = PaddingValues(top = 6.dp, bottom = 24.dp + bottomBarPad),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            item(key = "myspace_top_bar") {
-                MeeTubeTopBar(
-                    appBrandLabel = "AuraPulse",
+            item(key = "myspace_profile_row") {
+                MeeTubeProfileRow(
+                    displayName = displayName,
+                    cyberAvatarConfig = cyberAvatarConfig,
                     isArabic = isArabic,
-                    onBrandClick = {
+                    onAvatarClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        showAccountsHubSheet = true
+                        onNavigateToEditProfile()
                     },
                     onCastClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -213,17 +214,6 @@ fun MySpaceScreen(
                         } else {
                             "Scanning for nearby Cast devices..."
                         }
-                    }
-                )
-            }
-
-            item(key = "myspace_profile_row") {
-                MeeTubeProfileRow(
-                    displayName = displayName,
-                    cyberAvatarConfig = cyberAvatarConfig,
-                    onAvatarClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        onNavigateToEditProfile()
                     }
                 )
             }

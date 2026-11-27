@@ -1,7 +1,6 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -37,7 +36,6 @@ import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.OndemandVideo
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.SystemUpdate
@@ -56,7 +54,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -76,108 +73,21 @@ import com.example.ui.theme.auraCardBorderBrush
 import java.util.Locale
 
 @Composable
-internal fun MeeTubeTopBar(
-    appBrandLabel: String,
+internal fun MeeTubeProfileRow(
+    displayName: String,
+    cyberAvatarConfig: CyberAvatarConfig,
     isArabic: Boolean,
-    onBrandClick: () -> Unit,
+    onAvatarClick: () -> Unit,
     onCastClick: () -> Unit
 ) {
     val aura = MaterialTheme.aura
+    val equippedCyberAvatar = cyberAvatarConfig.equippedAvatar
     val borderWidth = if (aura.isGlassStyle || aura.isNeumorphic) 1.2.dp else 0.85.dp
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Surface(
-            shape = CircleShape,
-            color = aura.surfaceCard,
-            border = BorderStroke(borderWidth, auraCardBorderBrush(aura)),
-            modifier = Modifier
-                .height(44.dp)
-                .clip(CircleShape)
-                .clickable(onClick = onBrandClick)
-                .testTag("myspace_brand_pill")
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier.size(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    val badgeColor = aura.ambientPrimary
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        val w = size.width
-                        val h = size.height
-                        val path = Path().apply {
-                            moveTo(w * 0.5f, h * 0.88f)
-                            cubicTo(w * 0.14f, h * 0.66f, w * 0.02f, h * 0.38f, w * 0.14f, h * 0.22f)
-                            cubicTo(w * 0.24f, h * 0.08f, w * 0.44f, h * 0.12f, w * 0.5f, h * 0.26f)
-                            cubicTo(w * 0.56f, h * 0.12f, w * 0.76f, h * 0.08f, w * 0.86f, h * 0.22f)
-                            cubicTo(w * 0.98f, h * 0.38f, w * 0.86f, h * 0.66f, w * 0.5f, h * 0.88f)
-                            close()
-                        }
-                        drawPath(path = path, color = badgeColor)
-                    }
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(12.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = appBrandLabel,
-                    style = MaterialTheme.typography.titleSmall.copy(
-                        color = aura.textPrimary,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 15.sp
-                    )
-                )
-            }
-        }
-
-        Surface(
-            shape = CircleShape,
-            color = aura.surfaceCard,
-            border = BorderStroke(borderWidth, auraCardBorderBrush(aura))
-        ) {
-            IconButton(
-                onClick = onCastClick,
-                modifier = Modifier
-                    .size(46.dp)
-                    .testTag("myspace_cast_button")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Cast,
-                    contentDescription = if (isArabic) "البث على الأجهزة" else "Cast",
-                    tint = aura.textPrimary,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-internal fun MeeTubeProfileRow(
-    displayName: String,
-    cyberAvatarConfig: CyberAvatarConfig,
-    onAvatarClick: () -> Unit
-) {
-    val aura = MaterialTheme.aura
-    val equippedCyberAvatar = cyberAvatarConfig.equippedAvatar
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 18.dp, vertical = 8.dp),
+            .padding(start = 18.dp, end = 16.dp, top = 22.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
@@ -222,6 +132,28 @@ internal fun MeeTubeProfileRow(
                 .weight(1f)
                 .clickable(onClick = onAvatarClick)
         )
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        Surface(
+            shape = CircleShape,
+            color = aura.surfaceCard,
+            border = BorderStroke(borderWidth, auraCardBorderBrush(aura))
+        ) {
+            IconButton(
+                onClick = onCastClick,
+                modifier = Modifier
+                    .size(48.dp)
+                    .testTag("myspace_cast_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Cast,
+                    contentDescription = if (isArabic) "البث على الأجهزة" else "Cast",
+                    tint = aura.textPrimary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
     }
 }
 

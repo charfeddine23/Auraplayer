@@ -31,7 +31,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Favorite
@@ -531,9 +530,9 @@ internal fun ListeningExperienceCarousel(
 internal fun LibraryMenuSection(
     isArabic: Boolean,
     localMusicCount: Int,
-    cachedCount: Int,
+    likedSongsCount: Int,
     onLocalMusicClick: () -> Unit,
-    onCachedClick: () -> Unit
+    onLikedSongsClick: () -> Unit
 ) {
     val aura = MaterialTheme.aura
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -550,11 +549,12 @@ internal fun LibraryMenuSection(
             color = aura.borderMuted
         )
         LibraryMenuRow(
-            icon = Icons.AutoMirrored.Filled.FormatListBulleted,
-            title = if (isArabic) "الأغاني المخزنة مؤقتاً" else "Cached songs",
-            count = cachedCount,
-            onClick = onCachedClick,
-            testTag = "listen_menu_cached_songs"
+            icon = Icons.Default.Favorite,
+            iconTint = aura.accentFlame,
+            title = if (isArabic) "الأغاني المعجب بها" else "Liked Songs",
+            count = likedSongsCount,
+            onClick = onLikedSongsClick,
+            testTag = "listen_menu_liked_songs"
         )
     }
 }
@@ -565,7 +565,8 @@ private fun LibraryMenuRow(
     title: String,
     count: Int,
     onClick: () -> Unit,
-    testTag: String
+    testTag: String,
+    iconTint: Color = MaterialTheme.aura.textPrimary
 ) {
     val aura = MaterialTheme.aura
     Row(
@@ -580,7 +581,7 @@ private fun LibraryMenuRow(
         Icon(
             imageVector = icon,
             contentDescription = title,
-            tint = aura.textPrimary,
+            tint = iconTint,
             modifier = Modifier.size(24.dp)
         )
         Spacer(modifier = Modifier.width(18.dp))
@@ -618,7 +619,6 @@ internal fun LibraryPlaylistsSection(
     playlists: List<UserAudioPlaylist>,
     favoritesCount: Int,
     onNewPlaylistClick: () -> Unit,
-    onImportOrToolsClick: () -> Unit,
     onOpenFavoritesPlaylist: () -> Unit,
     onOpenUserPlaylist: (UserAudioPlaylist) -> Unit
 ) {
@@ -693,60 +693,7 @@ internal fun LibraryPlaylistsSection(
                 )
             }
 
-            // Right Card: Wave Emblem Badge (Import Audio / Audio Studio Hub)
-            Column(modifier = Modifier.weight(1f)) {
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = aura.surfaceCard,
-                    border = BorderStroke(0.7.dp, aura.borderSubtle),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(0.96f)
-                        .clip(RoundedCornerShape(20.dp))
-                        .clickable(onClick = onImportOrToolsClick)
-                        .testTag("listen_import_playlist_card")
-                ) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(50.dp)
-                                .clip(CircleShape)
-                                .background(aura.textPrimary),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            SoundwaveArcsEmblem(
-                                color = aura.background,
-                                modifier = Modifier.size(width = 28.dp, height = 22.dp)
-                            )
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = if (isArabic) "استيراد ملفات الصوت" else "Import audio",
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        color = aura.textPrimary,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 13.5.sp
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 4.dp)
-                )
-                Text(
-                    text = if (isArabic) "إضافة من الهاتف واستوديو الصوت" else "Files, EQ & Sleep Timer",
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        color = aura.textTertiary,
-                        fontSize = 11.5.sp
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 4.dp)
-                )
-            }
+            Spacer(modifier = Modifier.weight(1f))
         }
 
         // Smart Favorites Row + User Created Playlists
